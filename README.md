@@ -14,10 +14,12 @@ Am besten abhacken und Namen daneben schreiben wenn man eine Sache abgeschlossen
 - [x] Sample random observation grids (aka sensors). These grids correspond to the observation times at which your hidden function f(t) is observed, and thus define the input of the inference model (see below).
       In other words, each grid can be viewed as a subset of the 128-point fine grid of values of f(t). Feel free to define these grids in any way you see fit. They can be regular or irregular (in time), or mixture thereof.
       They should also have different numbers of points each. In fact, do control the number of minimum points on these grids. One way to implement them in practice would be via random masks. @Arwin
-- [ ] Since your model is supposed to handle any observation sequence, regardless of the scale of the functions involved, take care of the normalization of the function in your datasets. Check out (and modify, if needed) instance normalization.
-- [ ] In real world applications the data is noisy. We should therefore simulate such noise signals. We shall consider additive Gaussian noise of zero mean,
-      because it is the most likely noise family given that we typically only measure the scale of our errors (**General question 4:**  Why?).
-   - [ ] Sample the standard deviation (std) of each noise process (one per function f(t)) from a second Gaussian with zero mean and std = 0.1.
+- [x] Since your model is supposed to handle any observation sequence, regardless of the scale of the functions involved, take care of the normalization of the function in your datasets. Check out (and modify, if needed) instance normalization. @Arwin
+- [x] In real world applications the data is noisy. We should therefore simulate such noise signals. We shall consider additive Gaussian noise of zero mean,
+      because it is the most likely noise family given that we typically only measure the scale of our errors. @Arwin
+   - [ ] **General question 4:**  Why?
+   - [x] Sample the standard deviation (std) of each noise process (one per function f(t)) from a second Gaussian with zero mean and std = 0.1. @Arwin
+- [x] Finish Synthetic Dataset Class @Arwin
 
 ### Inference Model
 
