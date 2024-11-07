@@ -23,11 +23,11 @@ Am besten abhacken und Namen daneben schreiben wenn man eine Sache abgeschlossen
 
 ### Inference Model
 
-- [ ] your model should take as input "time series tuples" like
+- [x] your model should take as input "time series tuples" like
 
       (y1, t1), (y2, t2), …, (yL, tL), 
-     where t1, …, tL correspond to an instance of your random observation grids, and y1, …, yL correspond to noisy values of the interpolation function f(t) at those observation times.
-- [ ] Use a Transformer network to process the input data. You can also consider using time and value embeddings too.
+     where t1, …, tL correspond to an instance of your random observation grids, and y1, …, yL correspond to noisy values of the interpolation function f(t) at those observation times. @Arwin
+- [x] Use a Transformer network to process the input data. You can also consider using time and value embeddings too. @Arwin
 - [ ] Use the ideas of [DeepONet](https://arxiv.org/abs/1910.03193) framework to estimate the "hidden" function f(t).
 
 ### Out-of-distribution
