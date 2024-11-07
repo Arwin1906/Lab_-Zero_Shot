@@ -7,17 +7,20 @@ class SyntheticDataset:
     A class to generate a synthetic dataset of GP functions. 
     """
 
-    def __init__(self, num_functions, num_points, min_ones=10, verbose=False):
+    def __init__(self, num_functions, num_points, min_ones=10, padding=True, verbose=False):
         """
         Initializes the synthetic dataset.
         Args:
             num_functions: Number of functions to sample.
             num_points: Number of total points in the dataset.
             min_ones: Minimum number of 1s in the bitmask for sampled points.
+            padding: Whether to pad the observations to num_points length.
+            verbose: Whether to display progress bars.
         """
         self.num_functions = num_functions
         self.num_points = num_points
         self.min_ones = min_ones
+        self.padding = padding
         self.verbose = verbose
 
         self.X = np.linspace(0, 1, self.num_points)
@@ -48,13 +51,19 @@ class SyntheticDataset:
                 bitmask = self.generate_bitmask_irregular(min_ones=self.min_ones)
                 observation_time = self.X[bitmask==1]
                 observation_value = y_noisy[bitmask==1]
-                self.observations.append((observation_time, observation_value))
             else:
                 # Generate a bitmask for regularly sampled points
                 bitmask, _ = self.generate_bitmask_regular(self.X, min_ones=self.min_ones)
                 observation_time = self.X[bitmask==1]
                 observation_value = y_noisy[bitmask==1]
-                self.observations.append((observation_time, observation_value))
+
+            if self.padding:
+                # Pad observation_time and observation_value to the fixed length (num_points)
+                observation_time = np.pad(observation_time, (0, self.num_points - len(observation_time)), 'constant', constant_values=0)
+                observation_value = np.pad(observation_value, (0, self.num_points - len(observation_value)), 'constant', constant_values=0)
+            
+            # Add the padded observations to the dataset
+            self.observations.append((observation_value, observation_time))
     
         return
     
