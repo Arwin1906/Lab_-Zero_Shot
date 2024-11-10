@@ -3,3 +3,4 @@ Startbefehl.txt
 **/.ipynb_checkpoints
 .vscode
 *.pdf
+**/checkpoints/**
