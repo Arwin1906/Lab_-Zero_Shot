@@ -16,18 +16,25 @@ def plot_progress(data_loader, model):
     for i, (function_values, observations) in enumerate(data_loader):
         
         values, times = observations
-        prediction = model(values, times)
-        ground_truth = function_values
+        prediction = model(values, times).detach().cpu().numpy()
+        values, times = values.detach().cpu().numpy(), times.detach().cpu().numpy()
+        ground_truth = function_values.detach().cpu().numpy()
 
         for j in range(len(ground_truth[0])):
-            ax[i, 0].plot(X, ground_truth[j].detach().cpu().numpy())
-            ax[i, 0].plot(X, prediction[j].detach().cpu().numpy())
+            ax[i, 0].plot(X, ground_truth[j])
+            ax[i, 0].plot(X, prediction[j])
+            mask = values[j]!=0
+            ax[i, 0].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
 
-            ax[i, 1].plot(X, ground_truth[j+1].detach().cpu().numpy())
-            ax[i, 1].plot(X, prediction[j+1].detach().cpu().numpy())
+            ax[i, 1].plot(X, ground_truth[j+1])
+            ax[i, 1].plot(X, prediction[j+1])
+            mask = values[j+1]!=0
+            ax[i, 1].plot(times[j+1][mask], values[j+1][mask], marker='.', color='red', linestyle='None')
 
-            ax[i, 2].plot(X, ground_truth[j+2].detach().cpu().numpy())
-            ax[i, 2].plot(X, prediction[j+2].detach().cpu().numpy())
+            ax[i, 2].plot(X, ground_truth[j+2])
+            ax[i, 2].plot(X, prediction[j+2])
+            mask = values[j+2]!=0
+            ax[i, 2].plot(times[j+2][mask], values[j+2][mask], marker='.', color='red', linestyle='None')
 
             break
             
@@ -37,9 +44,10 @@ def plot_progress(data_loader, model):
     # Create custom legend handles
     ground_truth_handle = mlines.Line2D([], [], color='blue', label='Ground truth')
     prediction_handle = mlines.Line2D([], [], color='orange', label='Prediction')
+    observation_handle = mlines.Line2D([], [], color='red', label='Observations', marker='.')
 
     # Add the custom legend to the figure
-    fig.legend(handles=[ground_truth_handle, prediction_handle], loc='upper right',fontsize=20)
+    fig.legend(handles=[ground_truth_handle, prediction_handle, observation_handle], loc='upper right',fontsize=20)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
     return fig
