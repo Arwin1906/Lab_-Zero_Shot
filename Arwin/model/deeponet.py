@@ -13,7 +13,7 @@ class ResidualBlock(nn.Module):
         
         # MLP with one hidden layer
         self.linear1 = nn.Linear(1, hidden_dim)
-        self.relu = nn.ReLU()
+        #self.relu = nn.ReLU()
         self.linear2 = nn.Linear(hidden_dim, d_model)
         
         # Skip connection (fully linear)
@@ -26,8 +26,9 @@ class ResidualBlock(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model)
     
     def forward(self, x):
-        # Pass through the first linear layer and apply ReLU
-        hidden = self.relu(self.linear1(x))
+        # Pass through the first linear layer
+        #hidden = self.relu(self.linear1(x))
+        hidden = self.linear1(x)
         
         # Pass through the second linear layer and apply dropout
         output = self.dropout(self.linear2(hidden))
@@ -72,11 +73,11 @@ class TimeSeriesTransformer(nn.Module):
     """
     Transformer model for time series forecasting.
     """
-    def __init__(self, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, max_len=128):
+    def __init__(self, d_model=128, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, max_len=128):
         super(TimeSeriesTransformer, self).__init__()
         
         # Residual block for value encoding
-        self.value_linear = nn.Linear(1, d_model)
+        #self.value_linear = nn.Linear(1, d_model)
         self.residual_block = ResidualBlock(d_model, dim_feedforward, dropout)
         
         # Sinusoidal positional encoding for time encoding
@@ -109,6 +110,10 @@ class TimeSeriesTransformer(nn.Module):
         
         # Time embedding using sinusoidal encoding
         time_embedded = self.time_encoding[:, :L, :].repeat(batch_size, 1, 1)  # Match batch and sequence length
+
+        # Normalize embeddings
+        value_embedded = F.normalize(value_embedded, p=2, dim=-1)
+        time_embedded = F.normalize(time_embedded, p=2, dim=-1)
         
         # Combine time and value embeddings
         x = value_embedded + time_embedded
@@ -126,7 +131,7 @@ class TrunkNetwork(nn.Module):
     """
     Trunk network that takes the fine grid points as input and outputs a feature vector.
     """
-    def __init__(self, dim_model=64, hidden_dim=128, p=64):
+    def __init__(self, dim_model=64, hidden_dim=128, p=128):
         super(TrunkNetwork, self).__init__()
         self.fc1 = nn.Linear(1, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, dim_model)
