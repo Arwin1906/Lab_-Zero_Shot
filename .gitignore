@@ -4,3 +4,5 @@ Startbefehl.txt
 .vscode
 *.pdf
 **/checkpoints/**
+env/**
+*.pkl
