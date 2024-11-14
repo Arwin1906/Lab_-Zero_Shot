@@ -136,12 +136,12 @@ class TrunkNetwork(nn.Module):
         self.fc1 = nn.Linear(1, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, dim_model)
         self.fc3 = nn.Linear(dim_model, p)
-        self.activation = nn.ReLU()
+        #self.activation = nn.ReLU()
         
     def forward(self, y):
         # y is expected to be of shape [batch, num_points, 1] (fine grid points)
-        x = self.activation(self.fc1(y))
-        x = self.activation(self.fc2(x))
+        x = self.fc1(y)
+        x = self.fc2(x)
         x = self.fc3(x)  # Output shape: [batch, num_points, p]
         return x
     
@@ -171,3 +171,57 @@ class DeepONet(nn.Module):
         output = torch.sum(trunk_output * branch_output.unsqueeze(-1), dim=-1)  # Shape: [batch, num_points]
         
         return output
+    
+class DeepONetJan(torch.nn.Module):
+
+    def __init__(self, indicator_dim, d_model, heads=1, p=64):
+        super(DeepONetJan, self).__init__()
+        self.indicator_dim = indicator_dim
+        self.p = p
+        self.branch_embedding_y = nn.Linear(1, d_model)
+        self.branch_embedding_t = nn.Linear(1, d_model)
+        self.trunk_embedding_t = nn.Linear(1, d_model)
+
+        self.embedding_act = nn.Sequential(nn.LayerNorm(d_model),nn.LeakyReLU())
+        self.branch_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=heads, batch_first=True), num_layers=6, enable_nested_tensor=False)
+
+        self.branch_mlp = nn.Sequential(
+                            nn.Linear(indicator_dim*d_model,d_model),
+                            nn.LeakyReLU(),
+                            nn.Linear(d_model, self.p),
+                            nn.LeakyReLU()
+        )
+        self.trunk_mlp =  nn.Sequential(
+                            nn.Linear(d_model, d_model),nn.LeakyReLU(),
+                            nn.LayerNorm(d_model),
+                            nn.Linear(d_model, d_model),nn.LeakyReLU(),
+                            nn.Linear(d_model, d_model),nn.LeakyReLU(),
+                            nn.LayerNorm(d_model),
+                            nn.Linear(d_model, self.p),nn.LeakyReLU()
+        )
+        
+        
+    def forward(self, y, t):
+
+        # Generate the fine grid points batch dynamically for the current batch size
+        batch_size = y.shape[0]
+        fine_grid_points_batch = torch.linspace(0, 1, self.indicator_dim, device=y.device).unsqueeze(0).expand(batch_size, -1)
+
+        y = y.unsqueeze(-1)
+        t = t.unsqueeze(-1)
+        t_sample =  fine_grid_points_batch.unsqueeze(-1)
+
+        branch_embedding_y = self.branch_embedding_y(y)
+        branch_embedding_t = self.branch_embedding_t(t)
+        trunk_encoder_input = self.trunk_embedding_t(t_sample)
+
+        branch_encoder_input = self.embedding_act(branch_embedding_y + branch_embedding_t)
+        branch_encoder_output = self.branch_encoder(branch_encoder_input)
+
+        branch_encoder_output = (branch_encoder_output).view(branch_encoder_output.shape[0],-1)
+        branch_output = self.branch_mlp(branch_encoder_output) 
+        trunk_output = self.trunk_mlp(trunk_encoder_input)
+
+        combined = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
+        
+        return combined
