@@ -11,8 +11,9 @@ def save_model(model, optimizers, epoch, stats, modelname):
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
-        'optim_branch_state_dict': optimizers["branch"].state_dict(),
-        'optim_trunk_state_dict': optimizers["trunk"].state_dict(),
+        #'optim_branch_state_dict': optimizers["branch"].state_dict(),
+        #'optim_trunk_state_dict': optimizers["trunk"].state_dict(),
+        'optim_state_dict': optimizers["model"].state_dict(),
         'stats': stats
     }, savepath)
     return
@@ -23,8 +24,9 @@ def load_model(model, optimizers, savepath):
     
     checkpoint = torch.load(savepath, map_location="cpu")
     model.load_state_dict(checkpoint['model_state_dict'])
-    optimizers["branch"].load_state_dict(checkpoint['optim_branch_state_dict'])
-    optimizers["trunk"].load_state_dict(checkpoint['optim_trunk_state_dict'])
+    #optimizers["branch"].load_state_dict(checkpoint['optim_branch_state_dict'])
+    #optimizers["trunk"].load_state_dict(checkpoint['optim_trunk_state_dict'])
+    optimizers["model"].load_state_dict(checkpoint['optim_state_dict'])
     epoch = checkpoint["epoch"]
     stats = checkpoint["stats"]
     
