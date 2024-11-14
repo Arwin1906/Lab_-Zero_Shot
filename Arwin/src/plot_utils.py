@@ -6,7 +6,7 @@ import matplotlib.lines as mlines
 import torch
 
 @torch.no_grad()
-def plot_progress(data_loader, model):
+def plot_progress(data_loader, model, device):
 
     fig, ax = plt.subplots(4, 3, figsize=(15,15))
     X = np.linspace(0, 1, 128)
@@ -16,6 +16,7 @@ def plot_progress(data_loader, model):
     for i, (function_values, observations) in enumerate(data_loader):
         
         values, times = observations
+        values, times = values.to(device), times.to(device)
         prediction = model(values, times).detach().cpu().numpy()
         values, times = values.detach().cpu().numpy(), times.detach().cpu().numpy()
         ground_truth = function_values.detach().cpu().numpy()
@@ -44,7 +45,7 @@ def plot_progress(data_loader, model):
     # Create custom legend handles
     ground_truth_handle = mlines.Line2D([], [], color='blue', label='Ground truth')
     prediction_handle = mlines.Line2D([], [], color='orange', label='Prediction')
-    observation_handle = mlines.Line2D([], [], color='red', label='Observations', marker='.')
+    observation_handle = mlines.Line2D([], [], color='red', label='Observations', marker='.', linestyle='None')
 
     # Add the custom legend to the figure
     fig.legend(handles=[ground_truth_handle, prediction_handle, observation_handle], loc='upper right',fontsize=20)
