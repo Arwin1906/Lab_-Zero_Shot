@@ -1,5 +1,35 @@
 import os
 import torch
+import torch.nn.functional as F
+
+def collate_fn_fixed(batch):
+    """
+    Collate function for the synthetic dataset.
+    Pads each sequence in the batch to a fixed length of 128.
+    """
+    # Define the fixed length
+    max_len = 128
+
+    # Unpack the batch into function values and observations
+    function_values, observations = zip(*batch)
+    
+    # Convert function values to tensors (in case they’re numpy arrays)
+    function_values = torch.stack([torch.tensor(f, dtype=torch.float32) for f in function_values])
+    
+    # Separate values and times in observations, and convert to tensors
+    values, times = zip(*observations)
+    values = [torch.tensor(v, dtype=torch.float32) for v in values]
+    times = [torch.tensor(t, dtype=torch.float32) for t in times]
+    
+    # Manually pad values and times sequences to a fixed length of 128
+    padded_values = [F.pad(v, (0, max_len - len(v)), value=0) if len(v) < max_len else v[:max_len] for v in values]
+    padded_times = [F.pad(t, (0, max_len - len(t)), value=0) if len(t) < max_len else t[:max_len] for t in times]
+    
+    # Stack the padded sequences into tensors
+    padded_values = torch.stack(padded_values, dim=0)  # Shape: [batch, 128]
+    padded_times = torch.stack(padded_times, dim=0)    # Shape: [batch, 128]
+    
+    return function_values, (padded_values, padded_times)
 
 def save_model(model, optimizers, epoch, stats, modelname):
     """ Saving model checkpoint """
@@ -11,8 +41,6 @@ def save_model(model, optimizers, epoch, stats, modelname):
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
-        #'optim_branch_state_dict': optimizers["branch"].state_dict(),
-        #'optim_trunk_state_dict': optimizers["trunk"].state_dict(),
         'optim_state_dict': optimizers["model"].state_dict(),
         'stats': stats
     }, savepath)
@@ -24,8 +52,6 @@ def load_model(model, optimizers, savepath):
     
     checkpoint = torch.load(savepath, map_location="cpu")
     model.load_state_dict(checkpoint['model_state_dict'])
-    #optimizers["branch"].load_state_dict(checkpoint['optim_branch_state_dict'])
-    #optimizers["trunk"].load_state_dict(checkpoint['optim_trunk_state_dict'])
     optimizers["model"].load_state_dict(checkpoint['optim_state_dict'])
     epoch = checkpoint["epoch"]
     stats = checkpoint["stats"]
