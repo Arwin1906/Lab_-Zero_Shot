@@ -76,7 +76,7 @@ class Trainer:
     def __init__(
             self, model, criterion, train_loader, valid_loader, modelname,
             epochs=2, writer=None, inital_epoch=0, schedule=True,
-            optuna=False, optuna_trial=None
+            optuna_trial=None, optuna_model=False, verbose=True
         ):
         """ Trainer initializer """
         self.model = model
@@ -88,19 +88,59 @@ class Trainer:
         self.inital_epoch= inital_epoch
         self.epochs = int(epochs)
         self.schedule = schedule
-        self.optuna = optuna
         self.trial = optuna_trial
+        self.optuna_model = optuna_model
+        self.verbose = verbose
+
+        """
+        Args:
+            model: (torch.nn.Module)                        
+                The model to train
+            ========================================================
+            criterion: (torch.nn.Module)
+                The loss function to use
+            ========================================================
+            train_loader: (torch.utils.data.DataLoader)
+                The training data loader
+            ========================================================
+            valid_loader: (torch.utils.data.DataLoader)
+                The validation data loader
+            ========================================================
+            modelname: (str)
+                The name of the model under which to save it (models are not sdaved if optuna trial is used)
+            ========================================================
+            epochs: (int)
+                The number of epochs to train, default = 2
+            ========================================================
+            writer: (torch.utils.tensorboard.SummaryWriter)
+                The tensorboard writer for logging, default = None
+            ========================================================
+            inital_epoch: int
+                The epoch to start from, default = 0
+            ========================================================
+            schedule: bool
+                Whether to use a learning rate scheduler, default = True
+            ========================================================
+            optuna_trial: optuna.Trial
+                The optuna trial for lr/optimizer/scheduler optimization, default = None
+            ========================================================
+            optuna_model: bool
+                Whether to use a model with owith optuna chosen hyperparameters, default = False
+            ========================================================
+            verbose: bool
+                Whether to print progress, default = True
+        """
 
         # Optimizers
-        if self.optuna:
+        if self.trial is not None and not self.optuna_model:
             self.optim = getattr(torch.optim, self.trial.params["optimizer"])(model.parameters(), lr=self.trial.params["lr"])
         else:
-            lr = 1e-4
+            lr = 4.6e-4
             self.optim = torch.optim.AdamW(model.parameters(), lr=lr)
 
         # Schedulers
         if self.schedule:
-            if self.optuna:
+            if self.trial is not None and not self.optuna_model:
                 if self.trial.params["scheduler"] == "InverseSquareRootLR":
                     self.scheduler = InverseSquareRootLR(self.optim, warmup_steps=200, init_lr=self.trial.params["lr"], min_lr=self.trial.params["min_lr"])
                 else:
@@ -109,9 +149,7 @@ class Trainer:
                     self.scheduler = CombinedScheduler(self.optim, scheduler_lambda, scheduler_step, 200)
 
             else:
-                scheduler_lambda = torch.optim.lr_scheduler.LambdaLR(self.optim, lr_lambda=lambda epoch: warmup_lr_lambda(epoch, 200))
-                scheduler_step = torch.optim.lr_scheduler.StepLR(self.optim, step_size=50, gamma=0.99)
-                self.scheduler = CombinedScheduler(self.optim, scheduler_lambda, scheduler_step, 200)
+                self.scheduler = InverseSquareRootLR(self.optim, warmup_steps=200, init_lr=lr, min_lr=1.916e-5)
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
@@ -185,11 +223,11 @@ class Trainer:
                 mse_loss = self.train_one_step(true_values, values, times).item()
                 self.train_loss.append(mse_loss)
 
-                # only log progress if not optuna trial
-                if (not self.optuna):
-                    # updating progress bar
+                # updating progress bar
+                if self.verbose:
                     progress_bar.set_description(f"Ep {ep} Iter {i+1}: Loss={round(mse_loss,5)}")
 
+                if self.writer is not None:
                     #adding loss to tensorboard
                     self.writer.add_scalar("MSE/Train", mse_loss, self.iter_)
                     self.writer.add_scalar("RMSE/Train", np.sqrt(mse_loss), self.iter_)
@@ -204,15 +242,16 @@ class Trainer:
                 if(self.iter_ % 50 == 0):
                     cur_losses = self.valid_step()
                     # Optuna pruning
-                    if self.optuna:
+                    if self.trial is not None or self.optuna_model:
                         self.trial.report(np.mean(cur_losses), step=self.iter_)
                         if self.trial.should_prune():
                             raise optuna.TrialPruned()
-                    else:
+                        
+                    if self.verbose:
                         print(f"Valid loss @ iteration {self.iter_}: Loss={np.mean(cur_losses)}")
                         
                     # plot depth images
-                    if (not self.optuna): # only log into tensorboard and save if not optuna trial
+                    if (self.writer is not None): # only log into tensorboard and save if not optuna trial
                         self.writer.add_scalar("MSE/Valid", np.mean(cur_losses), self.iter_)
                         self.writer.add_scalar("RMSE/Valid", np.sqrt(np.mean(cur_losses)), self.iter_)
 
@@ -221,6 +260,7 @@ class Trainer:
                         self.writer.add_figure('Predictions', fig, global_step=self.iter_)
 
                     # save model
+                    if (self.trial is None and not self.optuna_model):
                         stats = {
                             "train_loss": self.train_loss,
                             "valid_loss": self.valid_loss
@@ -237,7 +277,7 @@ class Trainer:
             if(self.iter_ >= (self.epochs - self.inital_epoch)*len(self.train_loader)):
                 break
         
-        if optuna:
-            return np.mean(self.valid_loss)
+        if self.trial is not None:
+            return np.mean(cur_losses)
         
         return

@@ -173,7 +173,9 @@ class DeepONet(nn.Module):
         return output
     
 class DeepONetJan(torch.nn.Module):
-
+    """
+    Combines Branch and Trunk network with Transformer Encoder for the Branch network.
+    """
     def __init__(self, indicator_dim, d_model, heads=1, p=64):
         super(DeepONetJan, self).__init__()
         self.indicator_dim = indicator_dim
@@ -199,7 +201,6 @@ class DeepONetJan(torch.nn.Module):
                             nn.LayerNorm(d_model),
                             nn.Linear(d_model, self.p),nn.LeakyReLU()
         )
-        
         
     def forward(self, y, t):
 
