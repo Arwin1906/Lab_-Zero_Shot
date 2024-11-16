@@ -17,7 +17,8 @@ def plot_progress(data_loader, model, device):
         
         values, times = observations
         values, times = values.to(device), times.to(device)
-        prediction = model(values, times).detach().cpu().numpy()
+        eval_grid_points = torch.linspace(0, 1, 128, device=device)
+        prediction = model(values, times, eval_grid_points).detach().cpu().numpy()
         values, times = values.detach().cpu().numpy(), times.detach().cpu().numpy()
         ground_truth = function_values.detach().cpu().numpy()
 

@@ -169,8 +169,8 @@ class Trainer:
             true_values, values, times = true_values.to(self.device), values.to(self.device), times.to(self.device)
 
             # === Forward pass for branch and trunk ===
-
-            out = self.model(values, times)
+            eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
+            out = self.model(values, times, eval_grid_points)
 
             # Compute loss
             loss = self.criterion(out, true_values).item()
@@ -190,7 +190,8 @@ class Trainer:
         self.model.train()
         # === Forward pass for branch and trunk ===
 
-        out = self.model(values, times)
+        eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
+        out = self.model(values, times, eval_grid_points)
 
         # Compute loss
         loss = self.criterion(out, true_values)
