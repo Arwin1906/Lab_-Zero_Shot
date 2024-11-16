@@ -202,11 +202,11 @@ class DeepONetJan(torch.nn.Module):
                             nn.Linear(d_model, self.p),nn.LeakyReLU()
         )
         
-    def forward(self, y, t):
+    def forward(self, y, t, eval_grid_points):
 
         # Generate the fine grid points batch dynamically for the current batch size
         batch_size = y.shape[0]
-        fine_grid_points_batch = torch.linspace(0, 1, self.indicator_dim, device=y.device).unsqueeze(0).expand(batch_size, -1)
+        fine_grid_points_batch = eval_grid_points.unsqueeze(0).expand(batch_size, -1)
 
         y = y.unsqueeze(-1)
         t = t.unsqueeze(-1)
