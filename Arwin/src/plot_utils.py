@@ -9,6 +9,7 @@ import torch
 def plot_progress(data_loader, model, device):
 
     fig, ax = plt.subplots(4, 3, figsize=(15,15))
+    fig.set_dpi(200)
     X = np.linspace(0, 1, 128)
 
     matplotlib.use('Agg')  # Use Agg backend for rendering images without displaying them
