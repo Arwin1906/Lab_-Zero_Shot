@@ -230,6 +230,8 @@ class Trainer:
 
                 if self.writer is not None:
                     #adding loss to tensorboard
+                    self.writer.add_scalars("MSE", {"Train": mse_loss}, self.iter_)
+                    self.writer.add_scalars("RMSE", {"Train": np.sqrt(mse_loss)}, self.iter_)
                     self.writer.add_scalar("MSE/Train", mse_loss, self.iter_)
                     self.writer.add_scalar("RMSE/Train", np.sqrt(mse_loss), self.iter_)
 
@@ -253,6 +255,8 @@ class Trainer:
                         
                     # plot depth images
                     if (self.writer is not None): # only log into tensorboard and save if not optuna trial
+                        self.writer.add_scalars("MSE", {"Valid": np.mean(cur_losses)}, self.iter_)
+                        self.writer.add_scalars("RMSE", {"Valid": np.sqrt(np.mean(cur_losses))}, self.iter_)
                         self.writer.add_scalar("MSE/Valid", np.mean(cur_losses), self.iter_)
                         self.writer.add_scalar("RMSE/Valid", np.sqrt(np.mean(cur_losses)), self.iter_)
 
