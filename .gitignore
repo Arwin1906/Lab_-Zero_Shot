@@ -1,8 +1,0 @@
-Startbefehl.txt
-**/__pycache__
-**/.ipynb_checkpoints
-.vscode
-*.pdf
-**/checkpoints/**
-env/**
-*.pkl
