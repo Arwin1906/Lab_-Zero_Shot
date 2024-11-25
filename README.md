@@ -19,7 +19,7 @@ Your model from task one consisted of a trunk and a branch net. The branch net, 
 
 $h_1,..., h_L = Transformer1[(y_1, t_1), (y_2, t_2), …, (y_L, t_L)]$   (where L=128 during training)
 Now consider a summary network that maps the set h1, …, hL onto a single embedding thus:
-$ h_b = Attention(q, W_k . H, W_v . H)$, where:
+$h_b = Attention(q, W_k . H, W_v . H)$, where:
 
 - [ ] H is the matrix of your L embeddings, i.e. $H = h_1,..., h_L,$
 - [ ] $W_k$ and $W_v$ and the learnable key and value projections, and
