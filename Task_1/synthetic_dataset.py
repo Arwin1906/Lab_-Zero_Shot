@@ -65,15 +65,17 @@ class SyntheticDataset:
             if i == self.size*j:
                 j += 1
 
+            bitmask = np.ones(len(indices))
+
             if self.padding:
                 # Pad observation_time and observation_value to the fixed length (num_points)
                 observation_time = np.pad(observation_time, (0, self.num_points - len(observation_time)), 'constant', constant_values=0)
                 observation_value = np.pad(observation_value, (0, self.num_points - len(observation_value)), 'constant', constant_values=0)
-                indices = np.pad(indices, (0, self.num_points - len(indices)), 'constant', constant_values=0)
+                bitmask = np.pad(bitmask, (0, self.num_points - len(bitmask)), 'constant', constant_values=0)
             
             # Add the padded observations to the dataset
             self.observations.append((observation_value, observation_time))
-            self.masks.append(indices)
+            self.masks.append(bitmask)
             self.functions.append(y_normalized)
     
         return
