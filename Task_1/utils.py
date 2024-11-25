@@ -1,7 +1,9 @@
 import os
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+from scipy.interpolate import UnivariateSpline
 
 def collate_fn_fixed(batch):
     """
@@ -60,12 +62,33 @@ def collate_fn(batch):
     
     return function_values, (padded_values, padded_times), padded_masks
 
+def interpolate(y,t,mask):
+    # Suppose x_total and y_total represent the full set of 128 points
+    i = int(mask.sum())
+    t = t[:i]
+    y = y[:i]
+    sorted_indices = np.argsort(t)
+
+    x_sampled = t[sorted_indices]
+    y_sampled = y[sorted_indices]
+
+    # Create the smoothing spline interpolation function
+    # The smoothing factor 's' can be adjusted based on the desired smoothness
+    smoothing_factor = 1.75  # Adjust this parameter as needed
+    spline = UnivariateSpline(x_sampled, y_sampled, s=smoothing_factor)
+
+    # Generate 128 evenly spaced points within the range of x_sampled
+    x_new = np.linspace(x_sampled.min(), x_sampled.max(), 128)
+    y_new = spline(x_new)
+
+    return x_new,y_new
+
 def save_model(model, optimizers, epoch, stats, modelname):
     """ Saving model checkpoint """
     
-    if(not os.path.exists(f"./Arwin/checkpoints/{modelname}")):
-        os.makedirs(f"./Arwin/checkpoints/{modelname}")
-    savepath = f"./Arwin/checkpoints/{modelname}/checkpoint_epoch_{epoch}_{modelname}.pth"
+    if(not os.path.exists(f"./Task_1/checkpoints/{modelname}")):
+        os.makedirs(f"./Task_1/checkpoints/{modelname}")
+    savepath = f"./Task_1/checkpoints/{modelname}/checkpoint_epoch_{epoch}_{modelname}.pth"
 
     torch.save({
         'epoch': epoch,
