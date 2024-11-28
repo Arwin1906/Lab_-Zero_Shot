@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
-
+from Task_1.utils import interpolate
 import torch
 
 @torch.no_grad()
@@ -14,30 +14,37 @@ def plot_progress(data_loader, model, device):
 
     matplotlib.use('Agg')  # Use Agg backend for rendering images without displaying them
 
-    for i, (function_values, observations) in enumerate(data_loader):
+    for i, (function_values, observations, masks) in enumerate(data_loader):
         
         values, times = observations
-        values, times = values.to(device), times.to(device)
+        values, times, masks = values.to(device), times.to(device), masks.to(device)
         eval_grid_points = torch.linspace(0, 1, 128, device=device)
-        prediction = model(values, times, eval_grid_points).detach().cpu().numpy()
-        values, times = values.detach().cpu().numpy(), times.detach().cpu().numpy()
+        prediction = model(values, times, eval_grid_points, masks).detach().cpu().numpy()
+        values, times, masks = values.detach().cpu().numpy(), times.detach().cpu().numpy(), masks.detach().cpu().numpy()
         ground_truth = function_values.detach().cpu().numpy()
 
         for j in range(len(ground_truth[0])):
-            ax[i, 0].plot(X, ground_truth[j])
-            ax[i, 0].plot(X, prediction[j])
+
+            model_rmse = np.sqrt(np.mean((ground_truth[j] - prediction[j])**2))
+            x_inter, y_inter = interpolate(values[j], times[j], masks[j])
+            inter_rmse = np.sqrt(np.mean((ground_truth[j] - y_inter)**2))
+
+            ax[i, 0].plot(X, ground_truth[j], color='blue')
+            ax[i, 0].plot(X, prediction[j], color='green')
             mask = values[j]!=0
             ax[i, 0].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
+            ax[i, 0].set_title(f" Model-RMSE: {round(model_rmse,3)}")
 
-            ax[i, 1].plot(X, ground_truth[j+1])
-            ax[i, 1].plot(X, prediction[j+1])
-            mask = values[j+1]!=0
-            ax[i, 1].plot(times[j+1][mask], values[j+1][mask], marker='.', color='red', linestyle='None')
+            ax[i, 1].plot(X, ground_truth[j], color='blue')
+            ax[i, 1].plot(X, y_inter, color='orange')
+            mask = values[j]!=0
+            ax[i, 1].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
+            ax[i, 1].set_title(f" Interpolation-RMSE: {round(inter_rmse,3)}")
 
-            ax[i, 2].plot(X, ground_truth[j+2])
-            ax[i, 2].plot(X, prediction[j+2])
-            mask = values[j+2]!=0
-            ax[i, 2].plot(times[j+2][mask], values[j+2][mask], marker='.', color='red', linestyle='None')
+            ax[i, 2].plot(X, y_inter, color='orange')
+            ax[i, 2].plot(X, prediction[j], color='green')
+            mask = values[j]!=0
+            ax[i, 2].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
 
             break
             
@@ -46,11 +53,12 @@ def plot_progress(data_loader, model, device):
 
     # Create custom legend handles
     ground_truth_handle = mlines.Line2D([], [], color='blue', label='Ground truth')
-    prediction_handle = mlines.Line2D([], [], color='orange', label='Prediction')
+    prediction_handle = mlines.Line2D([], [], color='green', label='Prediction')
     observation_handle = mlines.Line2D([], [], color='red', label='Observations', marker='.', linestyle='None')
+    interpolation_handle = mlines.Line2D([], [], color='orange', label='Interpolated Values')
 
     # Add the custom legend to the figure
-    fig.legend(handles=[ground_truth_handle, prediction_handle, observation_handle], loc='upper right',fontsize=20)
+    fig.legend(handles=[ground_truth_handle, prediction_handle, observation_handle, interpolation_handle], loc='upper right',fontsize=20)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
     return fig

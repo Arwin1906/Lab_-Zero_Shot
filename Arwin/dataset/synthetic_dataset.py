@@ -1,36 +1,41 @@
 import numpy as np
 from math import exp
 from tqdm import tqdm
+from itertools import permutations 
 
 class SyntheticDataset:
     """
     A class to generate a synthetic dataset of GP functions. 
     """
 
-    def __init__(self, num_functions, num_points, min_ones=10, padding=True, verbose=False):
+    def __init__(self, num_functions, num_points, min_ones=10, max_ones=100, padding=True, verbose=False, test=False):
         """
         Initializes the synthetic dataset.
         Args:
             num_functions: Number of functions to sample.
             num_points: Number of total points in the dataset.
             min_ones: Minimum number of 1s in the bitmask for sampled points.
+            max_ones: Maximum number of 1s in the bitmask for sampled points.
             padding: Whether to pad the observations to num_points length.
             verbose: Whether to display progress bars.
+            test: Whether to use the test dataset with different varaince.
         """
         self.num_functions = num_functions
         self.num_points = num_points
         self.min_ones = min_ones
+        self.max_ones = max_ones
         self.padding = padding
         self.verbose = verbose
+        self.test = test
 
         self.X = np.linspace(0, 1, self.num_points)
         self.functions = []
         self.observations = []
+        self.masks = []
+        self.size = 1 # size of each beta distribution
 
         # Sample functions with different smoothness
-        third = self.num_functions // 3
-        sampled_functions = self.batch_sample_from_beta([(2, 5, third), (3, 3, third), (5, 2, self.num_functions - 2 * third)])
-        self.functions = sampled_functions
+        sampled_functions = self.batch_sample_from_beta([1, 2, 5])
 
         # Add progess bar for generating observations
         if self.verbose:
@@ -39,40 +44,50 @@ class SyntheticDataset:
         else:
             progress_bar = range(self.num_functions)
 
+        j = 1
         for i in progress_bar:
-            # Normalize the function values
-            y_normalized = self.instance_normalize(self.functions[i][0])
-            self.functions[i] = y_normalized
-            # Add Gaussian noise
-            y_noisy = self.add_gaussian_noise(y_normalized)
+            # # Normalize the function values and add Gaussian noise
+            y_noisy = self.add_gaussian_noise(sampled_functions[i][0])
+            y_normalized = self.instance_normalize(sampled_functions[i][0])
+            y_noisy_normalized = self.instance_normalize(y_noisy)
 
-            if i < self.num_functions//2:
+            if i < j*self.size//2:
                 # Generate a random bitmask for irregularly sampled points
-                bitmask = self.generate_bitmask_irregular(min_ones=self.min_ones)
-                observation_time = self.X[bitmask==1]
-                observation_value = y_noisy[bitmask==1]
+                indices = self.generate_bitmask_irregular(size=self.num_points, min_ones=self.min_ones, max_ones=self.max_ones)
+                observation_time = self.X[indices]
+                observation_value = y_noisy_normalized[indices]
             else:
                 # Generate a bitmask for regularly sampled points
-                bitmask, _ = self.generate_bitmask_regular(self.X, min_ones=self.min_ones)
-                observation_time = self.X[bitmask==1]
-                observation_value = y_noisy[bitmask==1]
+                indices = self.generate_indices_regular(self.X, min_ones=self.min_ones, max_ones=self.max_ones)
+                observation_time = self.X[indices]
+                observation_value = y_noisy_normalized[indices]
+
+            if i == self.size*j:
+                j += 1
+
+            bitmask = np.ones(len(indices))
 
             if self.padding:
                 # Pad observation_time and observation_value to the fixed length (num_points)
                 observation_time = np.pad(observation_time, (0, self.num_points - len(observation_time)), 'constant', constant_values=0)
                 observation_value = np.pad(observation_value, (0, self.num_points - len(observation_value)), 'constant', constant_values=0)
+                bitmask = np.pad(bitmask, (0, self.num_points - len(bitmask)), 'constant', constant_values=0)
             
             # Add the padded observations to the dataset
             self.observations.append((observation_value, observation_time))
+            self.masks.append(bitmask)
+            self.functions.append(y_normalized)
     
         return
     
-    def cov_matrix(self, x, scale):
+    def cov_matrix(self, X, scale, variance=1.0):
         """
         Creates a covariance matrix for the input data x using the RBF kernel.
         """
-        sq_dists = np.subtract.outer(x, x)**2
-        return np.exp(-sq_dists / (2 * scale**2))
+        sq_dists = np.subtract.outer(X, X)**2
+        if self.test:
+            variance = 1.15
+        return variance * np.exp(-sq_dists / (2 * scale**2))
     
     def sample_functions(self, X, scale, number_of_functions=1):
         """
@@ -91,13 +106,18 @@ class SyntheticDataset:
         """Batch sample kernel sizes from beta distributions for multiple smoothnesses."""
         rng = np.random.default_rng()
         sampled_functions = []
+        beta_params_permutations = list(permutations(beta_params, 2))
+        # get even split of functions for each beta distribution
+        sizes = self.get_split(self.num_functions, len(beta_params_permutations))
+        self.size = sizes[0]
 
-        for i, (a, b, size) in enumerate(beta_params):
-            scales = rng.beta(a, b, size)
+        for i, (params) in enumerate(beta_params_permutations):
+            a, b = params
+            scales = rng.beta(a, b, sizes[i])
             # Add progress bar for sampling functions
             if self.verbose:
                 progress_bar = tqdm(scales, total=len(scales))
-                progress_bar.set_description(f"Sampling Functions from Beta Distribution {i+1}/{len(beta_params)} with a={a}, b={b}")
+                progress_bar.set_description(f"Sampling Functions from Beta Distribution {i+1}/{len(beta_params_permutations)} with a={a}, b={b}")
             else:
                 progress_bar = scales
 
@@ -106,45 +126,50 @@ class SyntheticDataset:
 
         return sampled_functions
     
-    def generate_bitmask_irregular(self, size=128, min_ones=10, max_ones=128):
+    def get_split(self, total, param_len):
+        # Ensure param_len is valid
+        if param_len <= 0:
+            raise ValueError("param_len must be a positive integer.")
+
+        # Base size of each interval
+        size = total // param_len
+        remainder = total % param_len
+
+        # Generate the list of intervals
+        intervals = [size] * param_len
+
+        # Adjust the last interval to account for the remainder
+        intervals[-1] += remainder
+
+        return intervals
+    
+    def generate_bitmask_irregular(self, size, min_ones, max_ones):
         """
         Generate a random bitmask of 0s and 1s with a fixed min and max number of 1s.
         """
         # Determine the number of 1s (between min_ones and max_ones)
         num_ones = np.random.randint(min_ones, max_ones + 1)
         
-        # Initialize a mask of zeros
-        bitmask = np.zeros(size, dtype=int)
-        
         # Choose unique random indices to set to 1
-        ones_indices = np.random.choice(size, num_ones, replace=False)
+        indices = np.random.choice(size, num_ones, replace=False)
         
-        # Set these indices to 1
-        bitmask[ones_indices] = 1
-        
-        return bitmask
+        return indices
     
-    def generate_bitmask_regular(self, X, min_ones=10, max_ones=128):
+    def generate_indices_regular(self, X, min_ones, max_ones):
         """
-        Generate a bitmask for regularly sampled points.
+        Generate indices for regularly sampled points.
         """
         # Determine the number of 1s (between min_ones and max_ones)
         num_ones = np.random.randint(min_ones, max_ones + 1)
 
         # Regularly sample points from X
         indices = np.linspace(0, len(X) - 1, num_ones, dtype=int)
-        sampled_points = X[indices]
 
-        bitmask = np.zeros(len(X), dtype=int)
-        # Set mask entries to 1 where points in sampled_points are found in X
-        indices = np.isin(X, sampled_points)
-        bitmask[indices] = 1
-
-        return bitmask, sampled_points
+        return indices
     
     def instance_normalize(self, y_values, epsilon=1e-8):
         """
-        Normalize the values of y_values to have a mean of 0 and a variance of 1.
+        Normalize the values of y_values using z-score normalization.
         """
         # Calculate mean and variance
         mean_y = np.mean(y_values)
@@ -179,4 +204,4 @@ class SyntheticDataset:
         """
         Returns the function values and observations for the function at index idx.
         """
-        return self.functions[idx], self.observations[idx]
+        return self.functions[idx], self.observations[idx], self.masks[idx]
