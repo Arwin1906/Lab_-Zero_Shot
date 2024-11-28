@@ -5,8 +5,8 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 
-from Arwin.src.utils import save_model
-from Arwin.src.plot_utils import plot_progress
+from Task_1.utils import save_model
+from Task_1.plot_utils import plot_progress
 
 def warmup_lr_lambda(epoch, warmup_epochs):
     """ Learning rate scheduler with linear warmup """
@@ -163,14 +163,14 @@ class Trainer:
         """ Some validation iterations """
         self.model.eval()
         cur_losses = []
-        for i, (true_values, observations) in enumerate(self.valid_loader):   
+        for i, (true_values, observations, masks) in enumerate(self.valid_loader):   
             # setting inputs to GPU
             values, times = observations
-            true_values, values, times = true_values.to(self.device), values.to(self.device), times.to(self.device)
+            true_values, values, times, masks = true_values.to(self.device), values.to(self.device), times.to(self.device), masks.to(self.device)
 
             # === Forward pass for branch and trunk ===
             eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
-            out = self.model(values, times, eval_grid_points)
+            out = self.model(values, times, eval_grid_points, masks)
 
             # Compute loss
             loss = self.criterion(out, true_values).item()
@@ -185,13 +185,13 @@ class Trainer:
         
         return cur_losses
     
-    def train_one_step(self, true_values, values, times):
+    def train_one_step(self, true_values, values, times, masks):
         """ One training step """
         self.model.train()
         # === Forward pass for branch and trunk ===
 
         eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
-        out = self.model(values, times, eval_grid_points)
+        out = self.model(values, times, eval_grid_points, masks)
 
         # Compute loss
         loss = self.criterion(out, true_values)
@@ -216,12 +216,12 @@ class Trainer:
         
         for ep in range(self.inital_epoch, self.epochs + self.inital_epoch):
             progress_bar = tqdm(enumerate(self.train_loader), total=(len(self.train_loader)), initial=0)
-            for i, (true_values, observations) in progress_bar:     
+            for i, (true_values, observations, masks) in progress_bar:     
                 # setting inputs to GPU
                 values, times = observations
-                true_values, values, times = true_values.to(self.device), values.to(self.device), times.to(self.device)
+                true_values, values, times, masks = true_values.to(self.device), values.to(self.device), times.to(self.device), masks.to(self.device)
                 # forward pass and loss
-                mse_loss = self.train_one_step(true_values, values, times).item()
+                mse_loss = self.train_one_step(true_values, values, times, masks).item()
                 self.train_loss.append(mse_loss)
 
                 # updating progress bar
