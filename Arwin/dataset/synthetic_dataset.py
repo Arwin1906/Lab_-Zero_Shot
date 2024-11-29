@@ -1,14 +1,15 @@
 import numpy as np
-from math import exp
+from numpy.linalg import LinAlgError
 from tqdm import tqdm
-from itertools import permutations 
+from itertools import permutations
+from joblib import Parallel, delayed
 
 class SyntheticDataset:
     """
     A class to generate a synthetic dataset of GP functions. 
     """
 
-    def __init__(self, num_functions, num_points, min_ones=10, max_ones=100, padding=True, verbose=False, test=False):
+    def __init__(self, num_functions, num_points, min_ones=60, max_ones=600, padding=True, verbose=False, test=False):
         """
         Initializes the synthetic dataset.
         Args:
@@ -44,14 +45,13 @@ class SyntheticDataset:
         else:
             progress_bar = range(self.num_functions)
 
-        j = 1
         for i in progress_bar:
             # # Normalize the function values and add Gaussian noise
             y_noisy = self.add_gaussian_noise(sampled_functions[i][0])
             y_normalized = self.instance_normalize(sampled_functions[i][0])
             y_noisy_normalized = self.instance_normalize(y_noisy)
 
-            if i < j*self.size//2:
+            if np.random.rand() < 0.5:
                 # Generate a random bitmask for irregularly sampled points
                 indices = self.generate_bitmask_irregular(size=self.num_points, min_ones=self.min_ones, max_ones=self.max_ones)
                 observation_time = self.X[indices]
@@ -61,9 +61,6 @@ class SyntheticDataset:
                 indices = self.generate_indices_regular(self.X, min_ones=self.min_ones, max_ones=self.max_ones)
                 observation_time = self.X[indices]
                 observation_value = y_noisy_normalized[indices]
-
-            if i == self.size*j:
-                j += 1
 
             bitmask = np.ones(len(indices))
 
@@ -80,26 +77,127 @@ class SyntheticDataset:
     
         return
     
-    def cov_matrix(self, X, scale, variance=1.0):
+    def cov_matrix_periodic(self, X, scale=1.0, std=1.0, p=1.0):
         """
-        Creates a covariance matrix for the input data x using the RBF kernel.
+        Creates a covariance matrix for the input data x using the periodic kernel.
+        Args:
+            X (array-like): Input data points.
+            scale (float): Length scale of the kernel.
+            std (float): Output standard deviation.
+            p (float): Period of the kernel.
+        Returns:
+            np.ndarray: Covariance matrix.
         """
-        sq_dists = np.subtract.outer(X, X)**2
+        dists = np.abs(np.subtract.outer(X, X))
+
+        sine_term = np.sin(np.pi * dists / p)**2
+        exp_term = -2 * sine_term / (scale**2)
         if self.test:
-            variance = 1.15
-        return variance * np.exp(-sq_dists / (2 * scale**2))
+            std = 1.15
+        return std**2 * np.exp(exp_term)
     
-    def sample_functions(self, X, scale, number_of_functions=1):
+    def cov_matrix_locally_periodic(self, X, scale=1.0, std=1.0, p=1.0):
+        """
+        Creates a covariance matrix for the input data x using the locally periodic kernel.
+        Args:
+            X (array-like): Input data points.
+            scale (float): Length scale of the kernel.
+            std (float): Output standard deviation.
+            p (float): Period of the kernel.
+        Returns:
+            np.ndarray: Covariance matrix.
+        """
+        # Periodic kernel
+        periodic = self.cov_matrix_periodic(X, scale, std, p)
+
+        # Squared exponential kernel
+        sq_dists = np.subtract.outer(X, X)**2
+        squarred_exp = np.exp(-sq_dists / (2 * scale**2))
+
+        return squarred_exp * periodic
+    
+    def cov_matrix_linear(self, X, std_b=1.0, std_v=1.0, c=1.0):
+        """
+        Creates a covariance matrix for the input data x using the linear kernel.
+        Args:
+            X (array-like): Input data points.
+            sigma_b (float): Bias variance term (σ²b).
+            sigma_v (float): Variance of the linear term (σ²v).
+            c (float): Offset term (c).
+        
+        Returns:
+            np.ndarray: Covariance matrix.
+        """
+        centered_X = X - c
+        if self.test:
+            std_b = 1.15
+            std_v = 1.15
+        return std_b**2 + std_v**2 * np.outer(centered_X, centered_X) 
+
+    def cov_matrix_liner_plus_periodic(self, X, std_b=1.0, std_v=1.0, c=1.0, scale=1.0, std=1.0, p=1.0):
+        """
+        Creates a covariance matrix for the input data x using the linear plus periodic kernel.
+        Args:
+            X (array-like): Input data points.
+            sigma_b (float): Bias variance term (σ²b).
+            sigma_v (float): Variance of the linear term (σ²v).
+            c (float): Offset term (c).
+            scale (float): Length scale of the kernel.
+            std (float): Output standard deviation.
+            p (float): Period of the kernel.
+        
+        Returns:
+            np.ndarray: Covariance matrix.
+        """
+        linear = self.cov_matrix_linear(X, std_b, std_v, c)
+        periodic = self.cov_matrix_periodic(X, scale, std, p)
+        return linear + periodic
+    
+    def regularize_cov_matrix(self, cov_matrix, epsilon=1e-4):
+        """
+        Regularize the covariance matrix to ensure numerical stability.
+        
+        Args:
+            cov_matrix (np.ndarray): Input covariance matrix.
+            epsilon (float): Small value to add to the diagonal.
+        
+        Returns:
+            np.ndarray: Regularized covariance matrix.
+        """
+        return cov_matrix + np.eye(cov_matrix.shape[0]) * epsilon
+
+    
+    def sample_functions(self, X, scale, p, kernel,  number_of_functions=1):
         """
         Sample functions from the prior distribution
         """
-        sigma = self.cov_matrix(X, scale)
-        # Assume a mean of 0 for simplicity
-        mean = np.zeros(X.shape[0])
-        ys = np.random.multivariate_normal(
-            mean=mean, cov=sigma, 
-            size=number_of_functions)
-        
+        # Select the covariance matrix function based on the kernel
+        if kernel == "periodic":
+            sigma = self.cov_matrix_periodic(X, scale=scale, p=p)
+        elif kernel == "locally_periodic":
+            sigma = self.cov_matrix_locally_periodic(X, scale=scale, p=p)
+        elif kernel == "linear_plus_periodic":
+            sigma = self.cov_matrix_liner_plus_periodic(X, scale=scale, p=p)
+        else:
+            raise ValueError(f"Unsupported kernel type: {kernel}")
+            
+        try:
+            # Assume a mean of 0 for simplicity
+            mean = np.zeros(X.shape[0])
+            ys = np.random.multivariate_normal(
+                mean=mean, cov=sigma, 
+                size=number_of_functions)
+        except LinAlgError:
+            print("Numerical instability detected. Regularizing covariance matrix...")
+            sigma = self.regularize_cov_matrix(sigma, epsilon=1e-4)
+            try:
+                ys = np.random.multivariate_normal(
+                mean=mean, cov=sigma, 
+                size=number_of_functions)
+            except LinAlgError as e:
+                 print(f"Regularized covariance matrix also failed: {str(e)}")
+                 raise e
+            
         return ys
     
     def batch_sample_from_beta(self, beta_params):
@@ -111,20 +209,38 @@ class SyntheticDataset:
         sizes = self.get_split(self.num_functions, len(beta_params_permutations))
         self.size = sizes[0]
 
-        for i, (params) in enumerate(beta_params_permutations):
-            a, b = params
+        all_scales, all_ps, all_kernels = [], [], []
+
+        for i, (a, b) in enumerate(beta_params_permutations):
             scales = rng.beta(a, b, sizes[i])
-            # Add progress bar for sampling functions
-            if self.verbose:
-                progress_bar = tqdm(scales, total=len(scales))
-                progress_bar.set_description(f"Sampling Functions from Beta Distribution {i+1}/{len(beta_params_permutations)} with a={a}, b={b}")
-            else:
-                progress_bar = scales
+            ps = rng.uniform(0.3, 0.5, sizes[i]) # sample period from uniform distribution
+            kernels = ["periodic"] * int(sizes[i] * 0.3) + ["locally_periodic"] * int(sizes[i] * 0.3) + ["linear_plus_periodic"] * (sizes[i] - 2 * int(sizes[i] * 0.3))
+            all_scales.extend(scales)
+            all_ps.extend(ps)
+            all_kernels.extend(kernels)
 
-            for scale in progress_bar:   
-                sampled_functions.append(self.sample_functions(self.X, scale))
+        # Shuffle all the scales, periods, and kernels to prevent order bias
+        indices = rng.permutation(len(all_scales))
+        all_scales = np.array(all_scales)[indices]
+        all_ps = np.array(all_ps)[indices]
+        all_kernels = np.array(all_kernels)[indices]
 
-        return sampled_functions
+        # Add progress bar for sampling functions
+        if self.verbose:
+            progress_bar = tqdm(zip(all_scales, all_ps, all_kernels), total=len(all_scales))
+            progress_bar.set_description(f"Sampling Functions from {len(beta_params_permutations)} Beta Distributions")
+        else:
+            progress_bar = zip(all_scales, all_ps, all_kernels)
+
+        # for j, (scale, p, kernel) in enumerate(progress_bar):
+        #     if self.verbose:
+        #         idx = j // self.size + 1
+        #         a, b = beta_params_permutations[idx]
+        #         progress_bar.set_description(f"Sampling Functions from Beta Distribution {idx}/{len(beta_params_permutations)} with a={a}, b={b}")
+
+        #     sampled_functions.append(self.sample_functions(self.X, scale, p, kernel))
+
+        return Parallel(n_jobs=-1)(delayed(self.sample_functions)(self.X, scale, p, kernel) for scale, p, kernel in progress_bar)
     
     def get_split(self, total, param_len):
         # Ensure param_len is valid
