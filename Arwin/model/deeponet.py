@@ -15,7 +15,13 @@ class DeepONet(torch.nn.Module):
 
         self.embedding_act = nn.Sequential(nn.LayerNorm(d_model),nn.LeakyReLU())
         self.branch_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=heads, batch_first=True), num_layers=6, enable_nested_tensor=False)
+        """ Modifications to the original DeepONet """
+        # Learnable query for attention-based summary
+        self.query = nn.Parameter(torch.randn(1, d_model)) # random initialization
 
+        # Multihead attention for summarization
+        self.summary_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=heads, batch_first=True)
+        """ -------------------------------------- """
         self.branch_mlp = nn.Sequential(
                             nn.Linear(indicator_dim*d_model,d_model),
                             nn.LeakyReLU(),
@@ -32,7 +38,6 @@ class DeepONet(torch.nn.Module):
         )
         
     def forward(self, y, t, eval_grid_points, mask):
-        """ TODO: Do somethin about the fixed grid points"""
         # Generate the fine grid points batch dynamically for the current batch size
         batch_size = y.shape[0]
         fine_grid_points_batch = eval_grid_points.unsqueeze(0).expand(batch_size, -1)
@@ -55,11 +60,19 @@ class DeepONet(torch.nn.Module):
 
         # Mask the output of the transformer encoder
         branch_encoder_output = branch_encoder_output * mask.unsqueeze(-1)
+        """ Modifications to the original DeepONet """
+        # Attention-based summary
+        H = branch_encoder_output  # Shape: [batch_size, L, d_model]
+        q = self.query.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, 1, d_model]
+
+        # Multihead attention: query (q), keys/values (H)
+        h_b, _ = self.summary_attention(q, H, H, key_padding_mask=mask_enc)  # h_b: [batch_size, 1, d_model]
+        h_b = h_b.squeeze(1)  # Flatten to [batch_size, d_model]
 
         # MLP for the Branch and Trunk Network
-        """ TODO: Change flattening """
-        branch_encoder_output = (branch_encoder_output).view(branch_encoder_output.shape[0],-1)
-        branch_output = self.branch_mlp(branch_encoder_output) 
+        #branch_encoder_output = (branch_encoder_output).view(branch_encoder_output.shape[0],-1)
+        """ -------------------------------------- """
+        branch_output = self.branch_mlp(h_b) 
         trunk_output = self.trunk_mlp(trunk_encoder_input)
 
         # Combine the Branch and Trunk Network
