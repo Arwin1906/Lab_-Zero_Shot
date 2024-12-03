@@ -48,8 +48,10 @@ class SyntheticDataset:
         for i in progress_bar:
             # # Normalize the function values and add Gaussian noise
             y_noisy = self.add_gaussian_noise(sampled_functions[i][0])
-            y_normalized = self.instance_normalize(sampled_functions[i][0])
-            y_noisy_normalized = self.instance_normalize(y_noisy)
+            #y_normalized = self.instance_normalize(sampled_functions[i][0])
+            #y_noisy_normalized = self.instance_normalize(y_noisy)
+            y_normalized = sampled_functions[i][0]
+            y_noisy_normalized = y_noisy
 
             if np.random.rand() < 0.5:
                 # Generate a random bitmask for irregularly sampled points

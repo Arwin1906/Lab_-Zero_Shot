@@ -23,7 +23,8 @@ class DeepONet(torch.nn.Module):
         self.summary_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=heads, batch_first=True)
         """ -------------------------------------- """
         self.branch_mlp = nn.Sequential(
-                            nn.Linear(indicator_dim*d_model,d_model),
+                            #nn.Linear(indicator_dim*d_model,d_model),
+                            nn.Linear(d_model,d_model),
                             nn.LeakyReLU(),
                             nn.Linear(d_model, self.p),
                             nn.LeakyReLU()
@@ -36,6 +37,19 @@ class DeepONet(torch.nn.Module):
                             nn.LayerNorm(d_model),
                             nn.Linear(d_model, self.p),nn.LeakyReLU()
         )
+        """ Modifications to the original DeepONet """
+        self.combined_mlp = nn.Sequential(
+                            nn.Linear(2*self.p, 1024),
+                            nn.LeakyReLU(),
+                            nn.Linear(1024, 1024),
+                            nn.LeakyReLU(),
+                            nn.Linear(1024, 1024),
+                            nn.LeakyReLU(),
+                            nn.Linear(1024, 1024),
+                            nn.LeakyReLU(),
+                            nn.Linear(1024, 1)
+        )
+        """ -------------------------------------- """
         
     def forward(self, y, t, eval_grid_points, mask):
         # Generate the fine grid points batch dynamically for the current batch size
@@ -62,7 +76,7 @@ class DeepONet(torch.nn.Module):
         branch_encoder_output = branch_encoder_output * mask.unsqueeze(-1)
         """ Modifications to the original DeepONet """
         # Attention-based summary
-        H = branch_encoder_output  # Shape: [batch_size, L, d_model]
+        H = branch_encoder_output  # Shape: [batch_size, 128, d_model]
         q = self.query.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, 1, d_model]
 
         # Multihead attention: query (q), keys/values (H)
@@ -75,7 +89,14 @@ class DeepONet(torch.nn.Module):
         branch_output = self.branch_mlp(h_b) 
         trunk_output = self.trunk_mlp(trunk_encoder_input)
 
+        """ Modifications to the original DeepONet """
         # Combine the Branch and Trunk Network
-        combined = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
+        combined_out = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
         
-        return combined
+        # Broadcast branch_output to match trunk_output dimensions
+        # branch_output_expanded = branch_output.unsqueeze(1).expand_as(trunk_output)  # Shape: [batch_size, 128, p]
+        # combined = torch.cat((branch_output_expanded, trunk_output.transpose(1, 2)), -1) # Shape: [batch_size, 128, 2*p]
+        # combined_out = self.combined_mlp(combined).squeeze(-1) # Shape: [batch_size, 128]
+        """ -------------------------------------- """
+        
+        return combined_out
