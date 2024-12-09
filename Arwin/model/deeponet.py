@@ -83,20 +83,38 @@ class DeepONet(torch.nn.Module):
         h_b, _ = self.summary_attention(q, H, H, key_padding_mask=mask_enc)  # h_b: [batch_size, 1, d_model]
         h_b = h_b.squeeze(1)  # Flatten to [batch_size, d_model]
 
-        # MLP for the Branch and Trunk Network
-        #branch_encoder_output = (branch_encoder_output).view(branch_encoder_output.shape[0],-1)
         """ -------------------------------------- """
         branch_output = self.branch_mlp(h_b) 
         trunk_output = self.trunk_mlp(trunk_encoder_input)
 
         """ Modifications to the original DeepONet """
         # Combine the Branch and Trunk Network
-        combined_out = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
-        
-        # Broadcast branch_output to match trunk_output dimensions
-        # branch_output_expanded = branch_output.unsqueeze(1).expand_as(trunk_output)  # Shape: [batch_size, 128, p]
-        # combined = torch.cat((branch_output_expanded, trunk_output.transpose(1, 2)), -1) # Shape: [batch_size, 128, 2*p]
-        # combined_out = self.combined_mlp(combined).squeeze(-1) # Shape: [batch_size, 128]
+        #combined_out = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
+
+        # combined_out = torch.zeros_like(branch_output)
+
+        # for i in range(trunk_output.shape[1]):
+        #     slice_tensor = trunk_output[:, i, :]  # Shape [256, 128]
+        #     concat = torch.cat((branch_output, slice_tensor), dim=1) # Shape [256, 256]
+        #     mlp_out = self.combined_mlp(concat) # Shape [256, 1]
+        #     combined_out[:, i] = mlp_out.squeeze(-1) # Shape [256]
+
+        # Expand branch_output to match the sequence length of trunk_output
+        branch_output_expanded = branch_output.unsqueeze(1).expand(-1, trunk_output.shape[1], -1)  # [batch_size, d_model, p]
+
+        # Concatenate branch_output with trunk_output along the feature dimension
+        combined_input = torch.cat((branch_output_expanded, trunk_output), dim=-1)  # [batch_size, d_model, 2 * p]
+
+        # Flatten the batch and sequence dimensions to apply combined_mlp in one step
+        combined_input_flattened = combined_input.view(-1, combined_input.shape[-1])  # [batch_size * d_model, 2 * p]
+
+        # Pass through combined_mlp
+        mlp_output = self.combined_mlp(combined_input_flattened)  # [batch_size * d_model, 1]
+
+        # Reshape back to the original structure
+        combined_out = mlp_output.view(branch_output.shape[0], trunk_output.shape[1])  # [batch_size, d_model]
+
+            
         """ -------------------------------------- """
         
         return combined_out
