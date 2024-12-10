@@ -1,158 +1,107 @@
+
+import torch.nn.utils as nn_utils
+import math
 import torch
-import torch.nn.functional as F
-import numpy as np
-from scipy.stats import beta as beta_dist  # Import with a different name
-from torch.utils.data import Dataset, DataLoader
 from dataset import TimeSeriesDataset
+from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import os
+import numpy as np
 from model import DeepONet
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def prepare_data(grid_size,temporal_size):
-    # Parameters
-    num_functions = 10000    # Total number of functions to generate
-    batch_size = 1000         # Batch size for processing
-    n_batches = num_functions // batch_size
+def load_data(folder="saved_data_train"):
+    filenames = [
+        "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
+        "branch_mask.npy", "test_truth.npy","samples.npy","samples_noisy.npy"
 
-
-    alpha = 2.0
-    beta = 5.0
-
-    # Gaussian parameters for noise std
-
-
-    def rademacher_mask(n):
-        rademacher_values = np.random.choice([-1, 1], size=n)    
-        mask = (rademacher_values + 1) // 2  # This will map -1 to 0 and +1 to 1
-        return mask
-
-    def rbf_kernel_matrix(X, length_scale=1.0, variance=1.0):
-        """
-        Compute the RBF kernel matrix for input array X.
-        """
-        # Compute pairwise squared distances
-        X = X.reshape(-1, 1)
-        sqdist = np.sum(X**2, axis=1).reshape(-1, 1) + \
-                np.sum(X**2, axis=1) - 2 * np.dot(X, X.T)
-        K = variance * np.exp(-0.5 * sqdist / length_scale**2)
-        return K
-
-    variance = 1.0           # Variance parameter σ²
-    alpha, beta_param = 6.0, 7.0
-    # Create input grid
-    X = np.linspace(0, 1, grid_size)  # Points in [0, 1]
-
-
-    train_set_branch_y_collection = []
-    train_set_branch_t_collection = []
-
-    train_set_trunk_collection = []
-    branch_mask_collection = []
-    trunk_mask_collection = []
-    test_truth_collection = []
-
-    for i in range(num_functions):
-        if i % 1000 == 0:
-            print(i)
-        l = beta_dist.rvs(alpha, beta_param)
-
-        K = rbf_kernel_matrix(X, length_scale=l, variance=variance)
-
-        mean = np.zeros(grid_size)
-        noise_std = np.abs(np.random.normal(0, 0.1))
-
-        samples = np.random.multivariate_normal(mean, K, size=1).reshape(-1)
-        samples_noisy = samples + np.random.normal(0, noise_std, size=grid_size)
-
-        samples = (samples - samples.mean()) / samples.std() #z-scoring
-        samples_noisy = (samples_noisy - samples_noisy.mean()) / samples_noisy.std() #z-scoring
-
-        test_indices = np.random.choice(grid_size, temporal_size, replace=False)
-        train_indices = np.setdiff1d(np.arange(grid_size), test_indices)
-
-        train_set_branch_y = samples_noisy[train_indices] #'TODDO NOISY'
-        train_set_branch_t = X[train_indices]
-
-        train_set_trunk = X[test_indices]
-
-        branch_mask = rademacher_mask(len(train_set_branch_y))
-        trunk_mask = rademacher_mask(len(train_set_trunk))
-
-        test_truth = samples[test_indices]
-
-        train_set_branch_y_collection.append(train_set_branch_y)
-        train_set_branch_t_collection.append(train_set_branch_t)
-
-        train_set_trunk_collection.append(train_set_trunk)
-        branch_mask_collection.append(branch_mask)
-        trunk_mask_collection.append(trunk_mask)
-        test_truth_collection.append(test_truth)
-
-    return (train_set_branch_y_collection,train_set_branch_t_collection, train_set_trunk_collection, branch_mask_collection, trunk_mask_collection, test_truth_collection)
-
-grid_size = 128
+    ]
+    arrays = [np.load(os.path.join(folder, filename), allow_pickle=True) for filename in filenames]
+    print("Data loaded successfully.")
+    return arrays
+grid_size = 640
 temporal_size = 20
-(train_set_branch_y,
- train_set_branch_t,
- train_set_trunk,
- branch_mask,
- trunk_mask,
- test_truth) = prepare_data(grid_size,temporal_size)
 
+class InverseSquareRootLR(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, warmup_steps, init_lr, min_lr=1e-9, last_epoch=-1):
+        self.warmup_steps = warmup_steps
+        self.init_lr = init_lr
+        self.min_lr = min_lr
+        super(InverseSquareRootLR, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        step = self.last_epoch + 1
+        if step < self.warmup_steps:
+            # Linear warmup
+            lr = self.init_lr * (step / self.warmup_steps)
+        else:
+            # Inverse square root decay
+            lr = self.init_lr * math.sqrt(self.warmup_steps / step)
+
+        # Ensure learning rate doesn't go below minimum
+        lr = max(lr, self.min_lr)
+
+        return [lr for _ in self.base_lrs]
+    
+
+(train_set_branch_y, train_set_branch_t, train_set_trunk_t,
+ branch_mask, test_truth,samples,samples_noisy) = load_data()
 dataset = TimeSeriesDataset(
     train_set_branch_y,
     train_set_branch_t,
-    train_set_trunk,
+    train_set_trunk_t,
     branch_mask,
-    trunk_mask,
     test_truth
 )
-epochs = 10
+epochs = 5
 # Initialize the DataLoader
 dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
-model = DeepONet(grid_size-temporal_size,temporal_size,d_model=256,heads=1)
+model = DeepONet(d_model=256,heads=4)
+model = torch.compile(model)
 
 model.to(device)
 model.train()
 
-optim = torch.optim.AdamW(model.parameters(),lr=0.00001)
+print(f"Params: {sum(p.numel() for p in model.parameters())}")
+
+
+
+optim = torch.optim.AdamW(model.parameters(),lr=1e-3)
+lr_scheduler = InverseSquareRootLR(optim,warmup_steps=0,init_lr=1e-3,min_lr=1e-4)
+scaler = torch.GradScaler()
+
 loss = 0
-"""for epoch in range(epochs):
-    for batch in dataloader:
-        train_set_branch_y = batch["train_set_branch_y"].to(device)
-        train_set_branch_t = batch["train_set_branch_y"].to(device)
+for epoch in range(epochs):
+    for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", leave=False):
+        train_set_branch_y = batch["train_set_branch_y"].to('cuda')#[0]
+        train_set_branch_t = batch["train_set_branch_t"].to('cuda')#[0]
 
-        train_set_trunk = batch["train_set_trunk"].to(device)
+        train_set_trunk_t = batch["train_set_trunk"].to('cuda')#[0]
 
-        branch_mask = batch["branch_mask"].to(device)
-        trunk_mask = batch["trunk_mask"].to(device)
-
-
-        test_truth = batch["test_truth"].to(device)
-       
-        out = model(train_set_branch_y,train_set_branch_t,train_set_trunk,branch_mask,trunk_mask)
+        branch_mask = batch["branch_mask"].to('cuda')#[0]
+        
+        test_truth = batch["test_truth"].to('cuda')# [0]
+        #with torch.autocast(device_type='cuda', dtype=torch.bfloat16):  
+        out = model(train_set_branch_y,train_set_branch_t,train_set_trunk_t,branch_mask)
         loss = ((out-test_truth)**2).mean() #mse
+
         loss.backward()
-        optim.step()
+        #scaler.unscale_(optim)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        optim.step()#scaler.step(optim)
+        #scaler.update()
+
+        lr_scheduler.step()
         optim.zero_grad()
-    print(loss) 
-"""
-model.eval()
-for  batch in dataloader:
-    train_set_branch_y = batch["train_set_branch_y"].to(device)
-    train_set_branch_t = batch["train_set_branch_y"].to(device)
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item()}")
 
-    train_set_trunk = batch["train_set_trunk"].to(device)
-
-    branch_mask = batch["branch_mask"].to(device)
-    trunk_mask = batch["trunk_mask"].to(device)
-
-
-    test_truth = batch["test_truth"].to(device)
-
-
-
+        #break
+    #break
     
-    out = model(train_set_branch_y,train_set_branch_t,train_set_trunk,branch_mask,trunk_mask)
-    #print(out)
-    print(test_truth.shape,trunk_mask.shape)
-    break
+
+torch.save(model._orig_mod.state_dict(), 'model_best.pth')
+
