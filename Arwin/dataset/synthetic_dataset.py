@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.linalg import LinAlgError
 from tqdm import tqdm
-from itertools import permutations
+from itertools import product
 from joblib import Parallel, delayed
 
 class SyntheticDataset:
@@ -205,8 +205,7 @@ class SyntheticDataset:
     def batch_sample_from_beta(self, beta_params):
         """Batch sample kernel sizes from beta distributions for multiple smoothnesses."""
         rng = np.random.default_rng()
-        sampled_functions = []
-        beta_params_permutations = list(permutations(beta_params, 2))
+        beta_params_permutations = list(product(beta_params, repeat=2))
         # get even split of functions for each beta distribution
         sizes = self.get_split(self.num_functions, len(beta_params_permutations))
         self.size = sizes[0]
@@ -233,14 +232,6 @@ class SyntheticDataset:
             progress_bar.set_description(f"Sampling Functions from {len(beta_params_permutations)} Beta Distributions")
         else:
             progress_bar = zip(all_scales, all_ps, all_kernels)
-
-        # for j, (scale, p, kernel) in enumerate(progress_bar):
-        #     if self.verbose:
-        #         idx = j // self.size + 1
-        #         a, b = beta_params_permutations[idx]
-        #         progress_bar.set_description(f"Sampling Functions from Beta Distribution {idx}/{len(beta_params_permutations)} with a={a}, b={b}")
-
-        #     sampled_functions.append(self.sample_functions(self.X, scale, p, kernel))
 
         return Parallel(n_jobs=-1)(delayed(self.sample_functions)(self.X, scale, p, kernel) for scale, p, kernel in progress_bar)
     
