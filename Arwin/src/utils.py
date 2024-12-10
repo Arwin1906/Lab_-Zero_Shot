@@ -5,6 +5,37 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from scipy.interpolate import UnivariateSpline
 
+def collate_fn_windows(batch):
+    """
+    Collate function for a batch of windows.
+    Calls collate_fn_fixed for each window and preserves the structure.
+    """
+    y_value_windows, y_observation_windows, t_observation_windows, mask_windows, s_values = zip(*batch)
+    # Process each set of windows in the batch using collate_fn_fixed
+    collated_y_values = []
+    collated_observations = []
+    collated_masks = []
+    
+    for i in range(len(y_value_windows)):  # Loop over functions in the batch
+        function_values = y_value_windows[i]
+        observations = list(zip(y_observation_windows[i], t_observation_windows[i]))
+        masks = mask_windows[i]
+        # Combine into a batch and process with collate_fn_fixed
+        combined_batch = list(zip(function_values, observations, masks))
+        processed_values, processed_observations, processed_masks = collate_fn_fixed(combined_batch)
+        
+        collated_y_values.append(processed_values)
+        collated_observations.append(processed_observations)
+        collated_masks.append(processed_masks)
+    
+    # Stack across functions
+    collated_y_values = torch.stack(collated_y_values)
+    collated_observations = (torch.stack([obs[0] for obs in collated_observations]),
+                             torch.stack([obs[1] for obs in collated_observations]))
+    collated_masks = torch.stack(collated_masks)
+    
+    return collated_y_values, collated_observations, collated_masks, s_values
+
 def collate_fn_fixed(batch):
     """
     Collate function for the synthetic dataset.
