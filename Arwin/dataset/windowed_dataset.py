@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 class WindowedDataset(torch.utils.data.Dataset):
-    def __init__(self, functions, observations, masks, n_windows=5, window_size=128):
+    def __init__(self, functions, observations, masks, n_windows=5, window_size=128, shuffle=False, eval=False):
         """
         Initialize the dataset with functions, observations, masks, and windowing parameters.
         """
@@ -11,22 +11,34 @@ class WindowedDataset(torch.utils.data.Dataset):
         self.masks = masks  # List of masks
         self.n_windows = n_windows
         self.window_size = window_size
+        self.shuffle = shuffle # Whether to shuffle the observations in each window
+        self.eval = eval # Whether this is an evaluation dataset (affects normalization)
         self.X = np.linspace(0, 1, n_windows * window_size)  # Fine grid for splitting
 
     def normalize_window(self, t_values, y_values, t_observation, y_observation, epsilon=1e-8):
         """ Normalize the window of the time series and return the normalized values """
 
         # Calculate mean and variance
-        mean_y = np.mean(y_values)
-        var_y = np.var(y_values)
+        if self.eval:
+            mean_y = np.mean(y_observation)
+            var_y = np.var(y_observation)
+        else:
+            mean_y = np.mean(y_values)
+            var_y = np.var(y_values)
             
         # Normalize each value in y_values
         y_normalized = (y_values - mean_y) / np.sqrt(var_y + epsilon)
         y_observation_normalized = (y_observation - mean_y) / np.sqrt(var_y + epsilon)
 
-        t_min = np.min(t_values)
-        t_max = np.max(t_values)
-        t_diff = t_max - t_min
+        # Normalize time values
+        if self.eval:
+            t_min = np.min(t_observation)
+            t_max = np.max(t_observation)
+            t_diff = t_max - t_min
+        else:
+            t_min = np.min(t_values)
+            t_max = np.max(t_values)
+            t_diff = t_max - t_min
 
         t_normalized = (t_values - t_min) / t_diff
         t_observation_normalized = (t_observation - t_min) / t_diff
@@ -80,9 +92,19 @@ class WindowedDataset(torch.utils.data.Dataset):
 
             y_value_windows.append(y_normalized)
             t_value_windows.append(t_normalized)
+
+            if self.shuffle:
+                # Generate a random permutation of indices
+                perm = np.random.permutation(y_observation_normalized.shape[0])
+                # Apply the permutation to the observations
+                y_observation_normalized = y_observation_normalized[perm]
+                t_observation_normalized = t_observation_normalized[perm]
+                masks[start_index:closest_index] = masks[start_index:closest_index][perm]
+
             y_observation_windows.append(y_observation_normalized)
             t_observation_windows.append(t_observation_normalized)
             mask_windows.append(masks[start_index:closest_index])
+
             s_values.append(s)
 
             start_index = closest_index
