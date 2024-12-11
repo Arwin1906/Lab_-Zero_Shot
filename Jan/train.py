@@ -73,9 +73,9 @@ optim = torch.optim.AdamW(model.parameters(),lr=1e-3)
 lr_scheduler = InverseSquareRootLR(optim,warmup_steps=0,init_lr=1e-3,min_lr=1e-4)
 scaler = torch.GradScaler()
 
-loss = 0
+loss = torch.tensor([0])
 for epoch in range(epochs):
-    for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}", leave=False):
+    for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}, Loss {loss.item()}", leave=False):
         train_set_branch_y = batch["train_set_branch_y"].to('cuda')#[0]
         train_set_branch_t = batch["train_set_branch_t"].to('cuda')#[0]
 
@@ -84,19 +84,21 @@ for epoch in range(epochs):
         branch_mask = batch["branch_mask"].to('cuda')#[0]
         
         test_truth = batch["test_truth"].to('cuda')# [0]
-        #with torch.autocast(device_type='cuda', dtype=torch.bfloat16):  
         out = model(train_set_branch_y,train_set_branch_t,train_set_trunk_t,branch_mask)
         loss = ((out-test_truth)**2).mean() #mse
-
         loss.backward()
-        #scaler.unscale_(optim)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-        optim.step()#scaler.step(optim)
-        #scaler.update()
+        if torch.isnan(loss).any():
+            print(train_set_branch_y)
+            raise Exception("OUT TENSOR")
+       
+        optim.step()
 
         lr_scheduler.step()
         optim.zero_grad()
+   #     print(loss)
+
+    
     print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item()}")
 
         #break

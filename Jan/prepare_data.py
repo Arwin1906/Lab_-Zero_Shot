@@ -5,7 +5,7 @@ def save_data(*arrays, folder="saved_data",postfix="train"):
     os.makedirs(folder, exist_ok=True)  # Create the folder if it doesn't exist
     filenames = [
         "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
-        "branch_mask.npy", "test_truth.npy","samples.npy","samples_noisy.npy"
+        "branch_mask.npy", "test_truth.npy","stats.npy","samples.npy","samples_noisy.npy"
     ]
     for array, filename in zip(arrays, filenames):
         np.save(os.path.join(folder+"_"+postfix, filename), array)
@@ -14,7 +14,7 @@ def save_data(*arrays, folder="saved_data",postfix="train"):
 def load_data(folder="saved_data",postfix="train"):
     filenames = [
         "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
-        "branch_mask.npy", "test_truth.npy","samples.npy","samples_noisy.npy"
+        "branch_mask.npy", "test_truth.npy","stats.npy","samples.npy","samples_noisy.npy"
 
     ]
     arrays = [np.load(os.path.join(folder+"_"+postfix, filename), allow_pickle=True) for filename in filenames]
@@ -109,8 +109,8 @@ def prepare_data(num_functions,grid_size):
 
     train_set_trunk_collection = []
     branch_mask_collection = []
-    trunk_mask_collection = []
     test_truth_collection = []
+    stats_collection = []
 
     samples_ = []
     samples_noisy_ = []
@@ -129,7 +129,7 @@ def prepare_data(num_functions,grid_size):
 
             samples = np.random.multivariate_normal(mean, K, size=1).reshape(-1)
             samples_noisy = samples.copy() + np.random.normal(0, noise_std, size=grid_size)
-
+            
             samples = samples.reshape(5,-1)
             samples_noisy = samples_noisy.reshape(5,-1)
 
@@ -137,7 +137,7 @@ def prepare_data(num_functions,grid_size):
             train_set_branch_t = np.zeros(shape=(5, grid_size//5))
             test_truth = np.zeros(shape=(5, grid_size//5))
 
-            stats = np.zeros(shape=(5, 12))
+            stats = np.zeros(shape=(5, 8))
 
 
             branch_mask = np.zeros(shape=(5, grid_size//5))
@@ -145,66 +145,83 @@ def prepare_data(num_functions,grid_size):
             train_set_trunk_t = X.copy().reshape(5,grid_size//5)
 
             shape = samples_noisy.shape[0]
+           
             for i in range(0,shape):
                 r = random.randint(min, max)
-
-                if i < num_functions/2: 
+               
+                if j < num_functions/2: 
                     indices = np.sort(np.random.choice(np.arange(0, grid_size//5), r, replace=False))
                 else:
                     indices = np.arange(0, grid_size//5)[::random.randint(2, 4)]
-        
+               
                 y_observed = samples_noisy[i][indices]
                 y_truth = samples[i]
                 t_truth =X.reshape(5,grid_size//5)[i]
                 t_observed = X.reshape(5,grid_size//5)[i][indices]
-
-                y_min,y_max,y_range,y_f,y_l,y_d,y_mean,y_std = (np.min(y_truth),np.max(y_truth),
-                                                np.max(y_truth)-np.min(y_truth),
-                                                y_truth[0], y_truth[-1],
-                                                y_truth[-1] - y_truth[0],
-                                                np.mean(y_truth),
-                                                np.std(y_truth))
-
-                t_min,t_max,t_range,t_f,t_l,t_d = (np.min(t_truth),np.max(t_truth),
-                                                np.max(t_truth) - np.min(t_truth),
-                                                t_truth[0],t_truth[-1],
-                                                t_truth[-1] - t_truth[0])  
                 
+               # y_min_truth,y_max_truth = (np.min(y_truth),np.max(y_truth))
+               # y_min_noise,y_max_noise = (np.min(y_observed),np.max(y_observed))
+                y_mean_truth,y_std_truth = (np.mean(y_truth),np.std(y_truth))     
+                y_mean_noise,y_std_noise = (np.mean(y_observed),np.std(y_observed))
+
+         #       y_range,y_f,y_l,y_d =  (y_max_noise - y_min_noise,y_observed[0], y_observed[-1],y_observed[-1] - y_observed[0])
+         
+              
+                t_min,t_max,t_range,t_f,t_l,t_d = (np.min(t_observed),np.max(t_observed),
+                                                np.max(t_observed) - np.min(t_observed),
+                                                t_observed[0],t_observed[-1],
+                                                t_observed[-1] - t_observed[0])  
+                
+             
                 #norm
-                y_observed = (y_observed - y_min)/(y_max-y_min)
-                y_truth =  (y_truth - y_min)/(y_max-y_min)
+         #       print(y_observed - y_truth[indices])
+                y_observed = (y_observed - y_mean_noise)/y_std_noise#(y_max_noise-y_min_noise)
+                y_truth =  (y_truth - y_mean_noise)/y_std_noise#(y_max_truth-y_min_truth)
                 t_observed = (t_observed - t_min)/(t_max-t_min)
                 t_truth = (t_truth - t_min)/(t_max-t_min)
-
+                
+             #   print(y_min_truth,y_min_noise)
+              #  print(y_max_truth,y_max_noise)
+            #    print(y_observed - y_truth[indices])
+        #       raise Exception()
 
                 train_set_branch_y[i] = np.append(y_observed,np.zeros(grid_size//5 - len(indices)))         
                 train_set_branch_t[i] = np.append(t_observed,np.zeros(grid_size//5 - len(indices)))
                 train_set_trunk_t[i] = t_truth
                 branch_mask[i]  = np.append(np.ones(len(indices)), np.zeros(grid_size//5 - len(indices)))
                 test_truth[i] = y_truth
-                stats[i] =  np.array([y_min,y_max,y_range,y_f,y_l,y_d,t_min,t_max,t_range,t_f,t_l,t_d])
-
-        
+                stats[i] =np.array([y_mean_noise,y_std_noise,t_min,t_max,t_range,t_f,t_l,t_d]) #np.array([y_min_noise,y_max_noise,y_range,y_f,y_l,y_d,t_min,t_max,t_range,t_f,t_l,t_d])
+            #    raise Exception()
             train_set_branch_y_collection.append(train_set_branch_y)
             train_set_branch_t_collection.append(train_set_branch_t)
             train_set_trunk_collection.append(train_set_trunk_t)
             branch_mask_collection.append(branch_mask)
             test_truth_collection.append(test_truth)
+            stats_collection.append(stats)
             samples_.append(samples)
             samples_noisy_.append(samples_noisy)
-        except:
+            
+        except :
+
             continue
     train_set_branch_y_collection = (np.asarray(train_set_branch_y_collection, dtype=np.float32)).reshape(num_functions*5,-1)
     train_set_branch_t_collection = (np.asarray(train_set_branch_t_collection, dtype=np.float32)).reshape(num_functions*5,-1)
     train_set_trunk_collection = (np.asarray(train_set_trunk_collection, dtype=np.float32)).reshape(num_functions*5,-1)
     branch_mask_collection = (np.asarray(branch_mask_collection, dtype=np.float32)).reshape(num_functions*5,-1)
     test_truth_collection = (np.asarray(test_truth_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    
+    stats_collection = (np.asarray(stats_collection, dtype=np.float32)).reshape(num_functions*5,-1)
+
     samples_ = (np.asarray(samples_, dtype=np.float32)).reshape(num_functions*5,-1)
     samples_noisy_ = (np.asarray(samples_noisy_, dtype=np.float32)).reshape(num_functions*5,-1)
 
 
-    return (train_set_branch_y_collection,train_set_branch_t_collection, train_set_trunk_collection, branch_mask_collection, test_truth_collection,samples_,samples_noisy_)
+    return (train_set_branch_y_collection,
+            train_set_branch_t_collection,
+            train_set_trunk_collection,
+            branch_mask_collection,
+            test_truth_collection,
+            stats_collection,
+            samples_,samples_noisy_)
 
 
 

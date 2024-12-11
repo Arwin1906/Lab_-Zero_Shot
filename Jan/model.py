@@ -44,31 +44,43 @@ class DeepONet(torch.nn.Module):
         branch_embedding_t = self.embedding_t_branch(t)
         trunk_embed = self.embedding_t_branch(t_sample)
 
+        if torch.isnan(branch_embedding_y).any():
+            print(torch.isnan(y).any())
+            raise Exception("branch_embedding_y")
+        if torch.isnan(branch_embedding_t).any():
+            raise Exception("branch_embedding_t")
+        if torch.isnan(trunk_embed).any():
+            raise Exception("trunk_embed")
        
         y_mask_enc = torch.where(y_mask == 1, False, True)
-
+        if torch.isnan(y_mask_enc).any():
+            raise Exception("y_mask_enc")
 
         branch_encoder_input = (torch.cat((branch_embedding_y , branch_embedding_t),dim=-1))
-
+        if torch.isnan(branch_encoder_input).any():
+            raise Exception("branch_encoder_input")
         #
         branch_encoder_output = self.branch_encoder(branch_encoder_input, src_key_padding_mask=y_mask_enc)
        # branch_encoder_output = self.branch_mlp(branch_encoder_output)
-
+        if torch.isnan(branch_encoder_output).any():
+            raise Exception("branch_encoder_output")
 
       #  branch_encoder_output = branch_encoder_output * y_mask.unsqueeze(-1)
 
         q = self.learnable_q.unsqueeze(0).expand(y.shape[0],-1,-1)
-
+        if torch.isnan(q).any():
+            raise Exception("q")
 
         branch_output,_ = self.branch_attention(q,branch_encoder_output,branch_encoder_output,key_padding_mask=y_mask_enc)
-        branch_output = branch_output
-
-  
+        if torch.isnan(q).any():
+            raise Exception("branch_output")
         trunk_output = self.trunk_mlp(trunk_embed) 
-
-        
+        if torch.isnan(trunk_output).any():
+            raise Exception("trunk_output")
 
 
         combined = torch.cat((branch_output.expand(-1,trunk_output.shape[1],-1),trunk_output),dim=-1)
-
+        if torch.isnan(combined).any():
+            raise Exception("combined")
+        
         return self.final_proj(combined).squeeze()
