@@ -5,8 +5,8 @@ import numpy as np
 from tqdm import tqdm
 import torch.nn.functional as F
 
-from Task_1.utils import save_model
-from Task_1.plot_utils import plot_progress
+from Arwin.src.utils import save_model
+from Arwin.src.plot_utils import plot_progress
 
 def warmup_lr_lambda(epoch, warmup_epochs):
     """ Learning rate scheduler with linear warmup """
@@ -163,17 +163,24 @@ class Trainer:
         """ Some validation iterations """
         self.model.eval()
         cur_losses = []
-        for i, (true_values, observations, masks) in enumerate(self.valid_loader):   
+        for i, (y_value_windows, observation_windows, mask_windows, _) in enumerate(self.valid_loader):   
             # setting inputs to GPU
-            values, times = observations
-            true_values, values, times, masks = true_values.to(self.device), values.to(self.device), times.to(self.device), masks.to(self.device)
+            y_observation_windows, t_observation_windows = observation_windows
+            y_value_windows, y_observation_windows, t_observation_windows, mask_windows = y_value_windows.to(self.device), y_observation_windows.to(self.device), t_observation_windows.to(self.device), mask_windows.to(self.device)
 
             # === Forward pass for branch and trunk ===
+
             eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
-            out = self.model(values, times, eval_grid_points, masks)
+            # Flatten Windows to be of shape (batch_size * num_windows, window_size)
+            y_values = y_value_windows.view(-1, y_value_windows.size(2))
+            y_observations = y_observation_windows.view(-1, y_observation_windows.size(2))
+            t_observations = t_observation_windows.view(-1, t_observation_windows.size(2))
+            masks = mask_windows.view(-1, mask_windows.size(2))
+
+            out = self.model(y_observations, t_observations, eval_grid_points, masks)
 
             # Compute loss
-            loss = self.criterion(out, true_values).item()
+            loss = self.criterion(out, y_values).item()
 
             cur_losses.append(loss)
             
@@ -185,16 +192,22 @@ class Trainer:
         
         return cur_losses
     
-    def train_one_step(self, true_values, values, times, masks):
+    def train_one_step(self, y_value_windows, y_observation_windows, t_observation_windows, mask_windows):
         """ One training step """
         self.model.train()
         # === Forward pass for branch and trunk ===
 
         eval_grid_points = torch.linspace(0, 1, 128, device=self.device)
-        out = self.model(values, times, eval_grid_points, masks)
+        # Flatten Windows to be of shape (batch_size * num_windows, window_size)
+        y_values = y_value_windows.view(-1, y_value_windows.size(2))
+        y_observations = y_observation_windows.view(-1, y_observation_windows.size(2))
+        t_observations = t_observation_windows.view(-1, t_observation_windows.size(2))
+        masks = mask_windows.view(-1, mask_windows.size(2))
+
+        out = self.model(y_observations, t_observations, eval_grid_points, masks)
 
         # Compute loss
-        loss = self.criterion(out, true_values)
+        loss = self.criterion(out, y_values)
         
         # === Backward pass ===
 
@@ -216,12 +229,12 @@ class Trainer:
         
         for ep in range(self.inital_epoch, self.epochs + self.inital_epoch):
             progress_bar = tqdm(enumerate(self.train_loader), total=(len(self.train_loader)), initial=0)
-            for i, (true_values, observations, masks) in progress_bar:     
+            for i, (y_value_windows, observation_windows,  mask_windows, _) in progress_bar:     
                 # setting inputs to GPU
-                values, times = observations
-                true_values, values, times, masks = true_values.to(self.device), values.to(self.device), times.to(self.device), masks.to(self.device)
+                y_observation_windows, t_observation_windows = observation_windows
+                y_value_windows, y_observation_windows, t_observation_windows,  mask_windows = y_value_windows.to(self.device), y_observation_windows.to(self.device), t_observation_windows.to(self.device),  mask_windows.to(self.device)
                 # forward pass and loss
-                mse_loss = self.train_one_step(true_values, values, times, masks).item()
+                mse_loss = self.train_one_step(y_value_windows, y_observation_windows, t_observation_windows,  mask_windows).item()
                 self.train_loss.append(mse_loss)
 
                 # updating progress bar
@@ -242,7 +255,7 @@ class Trainer:
                         self.writer.add_scalar("LR", 1e-4, self.iter_)
                 
                 # doing some validation every once in a while
-                if(self.iter_ % 50 == 0):
+                if(self.iter_ % 100 == 0):
                     cur_losses = self.valid_step()
                     # Optuna pruning
                     if self.trial is not None or self.optuna_model:

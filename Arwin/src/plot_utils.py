@@ -14,37 +14,44 @@ def plot_progress(data_loader, model, device):
 
     matplotlib.use('Agg')  # Use Agg backend for rendering images without displaying them
 
-    for i, (function_values, observations, masks) in enumerate(data_loader):
+    for i, (y_value_windows, observation_windows, mask_windows, _) in enumerate(data_loader):
         
-        values, times = observations
-        values, times, masks = values.to(device), times.to(device), masks.to(device)
+        y_observation_windows, t_observation_windows = observation_windows
+        y_observation_windows, t_observation_windows, mask_windows = y_observation_windows.to(device), t_observation_windows.to(device), mask_windows.to(device)
         eval_grid_points = torch.linspace(0, 1, 128, device=device)
-        prediction = model(values, times, eval_grid_points, masks).detach().cpu().numpy()
-        values, times, masks = values.detach().cpu().numpy(), times.detach().cpu().numpy(), masks.detach().cpu().numpy()
-        ground_truth = function_values.detach().cpu().numpy()
+
+        # Flatten Windows to be of shape (batch_size * num_windows, window_size)
+        y_values = y_value_windows.view(-1, y_value_windows.size(2))
+        y_observations = y_observation_windows.view(-1, y_observation_windows.size(2))
+        t_observations = t_observation_windows.view(-1, t_observation_windows.size(2))
+        masks = mask_windows.view(-1, mask_windows.size(2))
+
+        prediction = model(y_observations, t_observations, eval_grid_points, masks).detach().cpu().numpy()
+        y_observations, t_observations, masks = y_observations.detach().cpu().numpy(), t_observations.detach().cpu().numpy(), masks.detach().cpu().numpy()
+        ground_truth = y_values.detach().cpu().numpy()
 
         for j in range(len(ground_truth[0])):
 
             model_rmse = np.sqrt(np.mean((ground_truth[j] - prediction[j])**2))
-            x_inter, y_inter = interpolate(values[j], times[j], masks[j])
+            x_inter, y_inter = interpolate(y_observations[j], t_observations[j], masks[j])
             inter_rmse = np.sqrt(np.mean((ground_truth[j] - y_inter)**2))
 
             ax[i, 0].plot(X, ground_truth[j], color='blue')
             ax[i, 0].plot(X, prediction[j], color='green')
-            mask = values[j]!=0
-            ax[i, 0].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
+            mask = y_observations[j]!=0
+            ax[i, 0].plot(t_observations[j][mask], y_observations[j][mask], marker='.', color='red', linestyle='None')
             ax[i, 0].set_title(f" Model-RMSE: {round(model_rmse,3)}")
 
             ax[i, 1].plot(X, ground_truth[j], color='blue')
             ax[i, 1].plot(X, y_inter, color='orange')
-            mask = values[j]!=0
-            ax[i, 1].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
+            mask = y_observations[j]!=0
+            ax[i, 1].plot(t_observations[j][mask], y_observations[j][mask], marker='.', color='red', linestyle='None')
             ax[i, 1].set_title(f" Interpolation-RMSE: {round(inter_rmse,3)}")
 
             ax[i, 2].plot(X, y_inter, color='orange')
             ax[i, 2].plot(X, prediction[j], color='green')
-            mask = values[j]!=0
-            ax[i, 2].plot(times[j][mask], values[j][mask], marker='.', color='red', linestyle='None')
+            mask = y_observations[j]!=0
+            ax[i, 2].plot(t_observations[j][mask], y_observations[j][mask], marker='.', color='red', linestyle='None')
 
             break
             

@@ -117,9 +117,9 @@ def interpolate(y,t,mask):
 def save_model(model, optimizers, epoch, stats, modelname):
     """ Saving model checkpoint """
     
-    if(not os.path.exists(f"./Task_1/checkpoints/{modelname}")):
-        os.makedirs(f"./Task_1/checkpoints/{modelname}")
-    savepath = f"./Task_1/checkpoints/{modelname}/checkpoint_epoch_{epoch}_{modelname}.pth"
+    if(not os.path.exists(f"./Arwin/checkpoints/{modelname}")):
+        os.makedirs(f"./Arwin/checkpoints/{modelname}")
+    savepath = f"./Arwin/checkpoints/{modelname}/checkpoint_epoch_{epoch}_{modelname}.pth"
 
     torch.save({
         'epoch': epoch,
