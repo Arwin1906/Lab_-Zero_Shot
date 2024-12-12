@@ -19,16 +19,29 @@ class WindowedDataset(torch.utils.data.Dataset):
         """ Normalize the window of the time series and return the normalized values """
 
         # Calculate mean and variance
+        # if self.eval:
+        #     mean_y = np.mean(y_observation)
+        #     var_y = np.var(y_observation)
+        # else:
+        #     mean_y = np.mean(y_values)
+        #     var_y = np.var(y_values)
+            
+        # # Normalize each value in y_values
+        # y_normalized = (y_values - mean_y) / np.sqrt(var_y + epsilon)
+        # y_observation_normalized = (y_observation - mean_y) / np.sqrt(var_y + epsilon)
+
         if self.eval:
-            mean_y = np.mean(y_observation)
-            var_y = np.var(y_observation)
+            y_min = np.min(y_observation)
+            y_max = np.max(y_observation)
+            y_diff = y_max - y_min
         else:
-            mean_y = np.mean(y_values)
-            var_y = np.var(y_values)
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            y_diff = y_max - y_min
             
         # Normalize each value in y_values
-        y_normalized = (y_values - mean_y) / np.sqrt(var_y + epsilon)
-        y_observation_normalized = (y_observation - mean_y) / np.sqrt(var_y + epsilon)
+        y_normalized = (y_values - y_min) / y_diff
+        y_observation_normalized = (y_observation - y_min) / y_diff
 
         # Normalize time values
         if self.eval:
@@ -43,7 +56,8 @@ class WindowedDataset(torch.utils.data.Dataset):
         t_normalized = (t_values - t_min) / t_diff
         t_observation_normalized = (t_observation - t_min) / t_diff
 
-        s = torch.tensor([mean_y, var_y, t_min, t_max, t_diff], dtype=torch.float32)
+        #s = torch.tensor([mean_y, var_y, t_min, t_max, t_diff], dtype=torch.float32)
+        s = torch.tensor([y_min, y_max, y_diff, t_min, t_max, t_diff], dtype=torch.float32)
 
         return t_normalized, y_normalized, t_observation_normalized, y_observation_normalized, s
 
