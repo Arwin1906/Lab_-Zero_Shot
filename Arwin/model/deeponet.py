@@ -51,38 +51,45 @@ class DeepONet(torch.nn.Module):
         )
         """ -------------------------------------- """
         
-    def forward(self, y, t, eval_grid_points, mask):
+    def forward(self, y, t, eval_grid_points, mask, embedd_only=False, embedding=None):
         # Generate the fine grid points batch dynamically for the current batch size
         batch_size = y.shape[0]
         fine_grid_points_batch = eval_grid_points.unsqueeze(0).expand(batch_size, -1)
 
         # Mask the input data
-        y = y.unsqueeze(-1) * mask.unsqueeze(-1)
-        t = t.unsqueeze(-1) * mask.unsqueeze(-1)
+        if embedding is None:
+            y = y.unsqueeze(-1) * mask.unsqueeze(-1)
+            t = t.unsqueeze(-1) * mask.unsqueeze(-1)
         t_sample =  fine_grid_points_batch.unsqueeze(-1)
         # Branch and Trunk Embedding
-        branch_embedding_y = self.branch_embedding_y(y)
-        branch_embedding_t = self.branch_embedding_t(t)
+        if embedding is None:
+            branch_embedding_y = self.branch_embedding_y(y)
+            branch_embedding_t = self.branch_embedding_t(t)
         trunk_encoder_input = self.trunk_embedding_t(t_sample)
 
         # generate mask for the transformer encoder
         mask_enc = torch.where(mask == 1, False, True)
 
         # Transformer Encoder for the Branch Network
-        branch_encoder_input = self.embedding_act(branch_embedding_y + branch_embedding_t)
-        branch_encoder_output = self.branch_encoder(branch_encoder_input, src_key_padding_mask=mask_enc)
+        if embedding is None:
+            branch_encoder_input = self.embedding_act(branch_embedding_y + branch_embedding_t)
+            branch_encoder_output = self.branch_encoder(branch_encoder_input, src_key_padding_mask=mask_enc)
 
-        # Mask the output of the transformer encoder
-        branch_encoder_output = branch_encoder_output * mask.unsqueeze(-1)
-        """ Modifications to the original DeepONet """
-        # Attention-based summary
-        H = branch_encoder_output  # Shape: [batch_size, 128, d_model]
-        q = self.query.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, 1, d_model]
+            # Mask the output of the transformer encoder
+            branch_encoder_output = branch_encoder_output * mask.unsqueeze(-1)
+            """ Modifications to the original DeepONet """
+            # Attention-based summary
+            H = branch_encoder_output  # Shape: [batch_size, 128, d_model]
+            q = self.query.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: [batch_size, 1, d_model]
 
-        # Multihead attention: query (q), keys/values (H)
-        h_b, _ = self.summary_attention(q, H, H, key_padding_mask=mask_enc)  # h_b: [batch_size, 1, d_model]
-        h_b = h_b.squeeze(1)  # Flatten to [batch_size, d_model]
+            # Multihead attention: query (q), keys/values (H)
+            h_b, _ = self.summary_attention(q, H, H, key_padding_mask=mask_enc)  # h_b: [batch_size, 1, d_model]
+            h_b = h_b.squeeze(1)  # Flatten to [batch_size, d_model]
+        else:
+            h_b = embedding
 
+        if embedd_only:
+            return h_b
         """ -------------------------------------- """
         branch_output = self.branch_mlp(h_b) 
         trunk_output = self.trunk_mlp(trunk_encoder_input)
