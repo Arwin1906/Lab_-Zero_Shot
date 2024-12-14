@@ -95,9 +95,6 @@ class DeepONet(torch.nn.Module):
         trunk_output = self.trunk_mlp(trunk_encoder_input)
 
         """ Modifications to the original DeepONet """
-        # Combine the Branch and Trunk Network
-        #combined_out = torch.bmm(branch_output.unsqueeze(1), trunk_output.transpose(1, 2)).squeeze()
-
         # combined_out = torch.zeros_like(branch_output)
 
         # for i in range(trunk_output.shape[1]):
