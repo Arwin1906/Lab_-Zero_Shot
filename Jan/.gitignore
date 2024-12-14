@@ -8,3 +8,4 @@ saved_data_test/
 saved_data_train_minmax/
 saved_data_train_minmax_big/
 *.pth
+nohup.out
