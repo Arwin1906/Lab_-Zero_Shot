@@ -145,14 +145,20 @@ class TrainerIM2:
             h_b_last_window = h_b[~indices_to_keep]
 
             # Compute loss on embedding
-            embedding_loss = self.criterion(u_b, h_b_last_window)
+            #embedding_loss = torch.nn.CosineEmbeddingLoss()(u_b, h_b_last_window, torch.ones(h_b_last_window.size(0)).to(self.device))
+            #embedding_loss = self.criterion(u_b, h_b_last_window)
 
             # compute loss on interpolation
             y_observation_last, t_observation_last, mask_last = y_observations[~indices_to_keep], t_observations[~indices_to_keep], masks[~indices_to_keep]
             prediction = self.deeponet(y_observation_last, t_observation_last, eval_grid_points, mask_last, embedd_only=False, embedding=u_b)
-            interpolation_loss = self.criterion(prediction, y_values[~indices_to_keep])
+            
+            true_values = y_values[~indices_to_keep]
+            true_scales = scales[~indices_to_keep]
+            true_values = true_values * true_scales[:,2].view(-1, 1) + true_scales[:,0].view(-1, 1)
 
-            loss = embedding_loss.item() + interpolation_loss.item()
+            interpolation_loss = self.criterion(prediction, true_values)
+
+            loss = interpolation_loss.item()
             cur_losses.append(loss)
             
             if(i >= val_iters):
@@ -188,17 +194,24 @@ class TrainerIM2:
         h_b_last_window = h_b[~indices_to_keep]
 
         # Compute loss on embedding
-        embedding_loss = self.criterion(u_b, h_b_last_window)
+        #embedding_loss = torch.nn.CosineEmbeddingLoss()(u_b, h_b_last_window, torch.ones(h_b_last_window.size(0)).to(self.device))
+        #embedding_loss = self.criterion(u_b, h_b_last_window)
 
         # compute loss on interpolation
         y_observation_last, t_observation_last, mask_last = y_observations[~indices_to_keep], t_observations[~indices_to_keep], masks[~indices_to_keep]
         prediction = self.deeponet(y_observation_last, t_observation_last, eval_grid_points, mask_last, embedd_only=False, embedding=u_b)
-        interpolation_loss = self.criterion(prediction, y_values[~indices_to_keep])
+        
+        true_values = y_values[~indices_to_keep]
+        true_scales = scales[~indices_to_keep]
+        true_values = true_values * true_scales[:,2].view(-1, 1) + true_scales[:,0].view(-1, 1)
+
+        interpolation_loss = self.criterion(prediction, true_values)
         
         # === Backward pass ===
 
         self.optim.zero_grad()
-        (embedding_loss + interpolation_loss).backward()
+        #(embedding_loss + interpolation_loss).backward()
+        interpolation_loss.backward()
         self.optim.step()
 
         if self.schedule:
@@ -206,7 +219,7 @@ class TrainerIM2:
 
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)      
             
-        return embedding_loss.item(), interpolation_loss.item()
+        return interpolation_loss.item()
 
     def fit(self):
         """ Train/Validation loop """
@@ -220,8 +233,10 @@ class TrainerIM2:
                 y_observation_windows, t_observation_windows = observation_windows
                 y_value_windows, y_observation_windows, t_observation_windows,  mask_windows = y_value_windows.to(self.device), y_observation_windows.to(self.device), t_observation_windows.to(self.device),  mask_windows.to(self.device)
                 # forward pass and loss
-                embedding_loss, interpolation_loss = self.train_one_step(y_value_windows, y_observation_windows, t_observation_windows,  mask_windows, scale_windows)
-                mse_loss = embedding_loss + interpolation_loss
+                #embedding_loss, interpolation_loss = self.train_one_step(y_value_windows, y_observation_windows, t_observation_windows,  mask_windows, scale_windows)
+                #mse_loss = embedding_loss + interpolation_loss
+                interpolation_loss = self.train_one_step(y_value_windows, y_observation_windows, t_observation_windows,  mask_windows, scale_windows)
+                mse_loss = interpolation_loss
                 self.train_loss.append(mse_loss)
 
                 # updating progress bar
@@ -232,11 +247,11 @@ class TrainerIM2:
                     #adding loss to tensorboard
                     self.writer.add_scalars("MSE", {"Train": mse_loss}, self.iter_)
                     self.writer.add_scalars("RMSE", {"Train": np.sqrt(mse_loss)}, self.iter_)
-                    self.writer.add_scalars("Embedding Loss", {"Train": embedding_loss}, self.iter_)
+                    #self.writer.add_scalars("Embedding Loss", {"Train": embedding_loss}, self.iter_)
                     self.writer.add_scalars("Interpolation Loss", {"Train": interpolation_loss}, self.iter_)
                     self.writer.add_scalar("MSE/Train", mse_loss, self.iter_)
                     self.writer.add_scalar("RMSE/Train", np.sqrt(mse_loss), self.iter_)
-                    self.writer.add_scalar("Embedding Loss/Train", embedding_loss, self.iter_)
+                    #self.writer.add_scalar("Embedding Loss/Train", embedding_loss, self.iter_)
                     self.writer.add_scalar("Interpolation Loss/Train", interpolation_loss, self.iter_)
 
                     # adding lr to tensorboard
