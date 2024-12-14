@@ -39,6 +39,8 @@ def plot_progress_forecast(data_loader, deeponet, model, device):
         prediction = deeponet(y_observation_last, t_observation_last, eval_grid_points, mask_last, embedd_only=False, embedding=u_b).detach().cpu().numpy()
         y_observation_last, t_observation_last, mask_last = y_observation_last.detach().cpu().numpy(), t_observation_last.detach().cpu().numpy(), mask_last.detach().cpu().numpy()
         ground_truth = y_values[~indices_to_keep].detach().cpu().numpy()
+        true_scales = scales[~indices_to_keep]
+        ground_truth = ground_truth * true_scales[:,2].view(-1, 1).detach().cpu().numpy() + true_scales[:,0].view(-1, 1).detach().cpu().numpy()
 
         for j in range(len(ground_truth[0])):
 
