@@ -33,31 +33,37 @@ class WindowedDataset(torch.utils.data.Dataset):
         if self.eval:
             y_min = np.min(y_observation)
             y_max = np.max(y_observation)
-            y_diff = y_max - y_min
+            y_range = y_max - y_min
+            y_first = y_observation[0]
+            y_last = y_observation[-1]
+            y_diff = y_last - y_first
         else:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            y_diff = y_max - y_min
+            y_range = y_max - y_min
+            y_first = y_values[0]
+            y_last = y_values[-1]
+            y_diff = y_last - y_first
             
         # Normalize each value in y_values
-        y_normalized = (y_values - y_min) / y_diff
-        y_observation_normalized = (y_observation - y_min) / y_diff
+        y_normalized = (y_values - y_min) / y_range
+        y_observation_normalized = (y_observation - y_min) / y_range
 
         # Normalize time values
         if self.eval:
-            t_min = np.min(t_observation)
-            t_max = np.max(t_observation)
-            t_diff = t_max - t_min
+            t_first = np.min(t_observation)
+            t_last = np.max(t_observation)
+            t_diff = t_last - t_first
         else:
-            t_min = np.min(t_values)
-            t_max = np.max(t_values)
-            t_diff = t_max - t_min
+            t_first = np.min(t_values)
+            t_last = np.max(t_values)
+            t_diff = t_last - t_first
 
-        t_normalized = (t_values - t_min) / t_diff
-        t_observation_normalized = (t_observation - t_min) / t_diff
+        t_normalized = (t_values - t_first) / t_diff
+        t_observation_normalized = (t_observation - t_first) / t_diff
 
-        #s = torch.tensor([mean_y, var_y, t_min, t_max, t_diff], dtype=torch.float32)
-        s = torch.tensor([y_min, y_max, y_diff, t_min, t_max, t_diff], dtype=torch.float32)
+        #s = torch.tensor([mean_y, var_y, t_first, t_last, t_diff], dtype=torch.float32)
+        s = torch.tensor([y_min, y_max, y_range, y_first, y_last, y_diff, t_first, t_last, t_diff], dtype=torch.float32)
 
         return t_normalized, y_normalized, t_observation_normalized, y_observation_normalized, s
 
