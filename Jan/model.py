@@ -3,22 +3,21 @@
 import torch
 import torch.nn as nn
 
-class DeepONet(torch.nn.Module):
+class FIML(torch.nn.Module):
 
-    def __init__(self, d_model, heads=1):
-        super(DeepONet, self).__init__()
+    def __init__(self, d_model,proj_dim=1024, heads=1):
+        super(FIML, self).__init__()
         self.branch_embedding_y = nn.Sequential(nn.Linear(1, d_model))
       
         self.embedding_t_branch =   nn.Sequential(nn.Linear(1, d_model))
-        self.embedding_t_trunk =   nn.Sequential(nn.Linear(1, d_model), nn.LayerNorm(d_model))
+        self.embedding_t_trunk =   nn.Sequential(nn.Linear(1, d_model))
 
-        self.embedding_act = nn.Sequential(nn.LayerNorm(d_model),nn.LeakyReLU())
         self.branch_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=2*d_model, nhead=heads, batch_first=True), num_layers=6, enable_nested_tensor=False)
      
         
-        self.branch_attention = nn.MultiheadAttention(2*d_model, 1 ,batch_first=True)
+        self.branch_attention = nn.MultiheadAttention(d_model, 1 ,batch_first=True)
 
-        self.learnable_q = nn.Parameter(torch.randn(1,2*d_model))
+        self.learnable_q = nn.Parameter(torch.randn(1,d_model))
 
         self.trunk_mlp =   nn.Sequential(nn.Linear(d_model, d_model),nn.LeakyReLU(),
                                          nn.LayerNorm(d_model),
@@ -27,12 +26,20 @@ class DeepONet(torch.nn.Module):
                                          nn.LayerNorm(d_model),
                                          nn.Linear(d_model, d_model),nn.LeakyReLU())  
         
-        self.final_proj = nn.Sequential(nn.Linear(3*d_model, d_model),nn.LeakyReLU(),
-                                         nn.LayerNorm(d_model),
-                                         nn.Linear(d_model, d_model),nn.LeakyReLU(),
-                                         nn.Linear(d_model, d_model),nn.LeakyReLU(),
-                                         nn.LayerNorm(d_model),
-                                         nn.Linear(d_model, 1),)
+        self.branch_mlp =   nn.Sequential(nn.Linear(2*d_model, 2*d_model),nn.LeakyReLU(),
+                                         nn.LayerNorm(2*d_model),
+                                         nn.Linear(2*d_model, d_model),nn.LeakyReLU(),
+                                         nn.LayerNorm(d_model))
+        
+        self.final_proj = nn.Sequential(nn.Linear(2*d_model, proj_dim),nn.LeakyReLU(),
+                                        nn.LayerNorm(proj_dim),
+                                        nn.Linear(proj_dim, proj_dim),nn.LeakyReLU(),
+                                        nn.Linear(proj_dim, proj_dim),nn.LeakyReLU(),
+                                        nn.Linear(proj_dim, proj_dim),nn.LeakyReLU(negative_slope=0.1),
+                                        nn.LayerNorm(proj_dim),
+                                        nn.Linear(proj_dim, d_model),nn.LeakyReLU(negative_slope=0.1),
+                                        nn.Linear(d_model,1),)
+                                        
         
     def forward(self, y, t, t_sample, y_mask):
         y = y.unsqueeze(-1) * y_mask.unsqueeze(-1)
@@ -42,45 +49,120 @@ class DeepONet(torch.nn.Module):
    
         branch_embedding_y = self.branch_embedding_y(y)
         branch_embedding_t = self.embedding_t_branch(t)
-        trunk_embed = self.embedding_t_branch(t_sample)
+        trunk_embed = self.embedding_t_trunk(t_sample)
 
-        if torch.isnan(branch_embedding_y).any():
-            print(torch.isnan(y).any())
-            raise Exception("branch_embedding_y")
-        if torch.isnan(branch_embedding_t).any():
-            raise Exception("branch_embedding_t")
-        if torch.isnan(trunk_embed).any():
-            raise Exception("trunk_embed")
-       
         y_mask_enc = torch.where(y_mask == 1, False, True)
-        if torch.isnan(y_mask_enc).any():
-            raise Exception("y_mask_enc")
+      
 
         branch_encoder_input = (torch.cat((branch_embedding_y , branch_embedding_t),dim=-1))
-        if torch.isnan(branch_encoder_input).any():
-            raise Exception("branch_encoder_input")
-        #
+   
         branch_encoder_output = self.branch_encoder(branch_encoder_input, src_key_padding_mask=y_mask_enc)
-       # branch_encoder_output = self.branch_mlp(branch_encoder_output)
-        if torch.isnan(branch_encoder_output).any():
-            raise Exception("branch_encoder_output")
-
-      #  branch_encoder_output = branch_encoder_output * y_mask.unsqueeze(-1)
-
+        branch_encoder_output = self.branch_mlp(branch_encoder_output)
+ 
         q = self.learnable_q.unsqueeze(0).expand(y.shape[0],-1,-1)
-        if torch.isnan(q).any():
-            raise Exception("q")
-
         branch_output,_ = self.branch_attention(q,branch_encoder_output,branch_encoder_output,key_padding_mask=y_mask_enc)
-        if torch.isnan(q).any():
-            raise Exception("branch_output")
+
         trunk_output = self.trunk_mlp(trunk_embed) 
-        if torch.isnan(trunk_output).any():
-            raise Exception("trunk_output")
+     
 
 
         combined = torch.cat((branch_output.expand(-1,trunk_output.shape[1],-1),trunk_output),dim=-1)
-        if torch.isnan(combined).any():
-            raise Exception("combined")
+
+        return self.final_proj(combined).squeeze(), branch_output
+
+
+
+
+class MegaTron(nn.Module):
+    def __init__(self, d_model,fim_l_d_model=256, heads=1):
+      super(MegaTron, self).__init__()
+      self.local_scale_emb = nn.Linear(9,d_model)
+      
+      
+      self.transformer = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=heads, batch_first=True), num_layers=8, enable_nested_tensor=False)
+      
+      self.learnable_q = nn.Parameter(torch.empty(1,d_model))
+      self.scale_q = nn.Parameter(torch.empty(1,d_model))
+      nn.init.xavier_uniform_(self.learnable_q)
+      nn.init.xavier_uniform_(self.scale_q)
+
+      self.summary = nn.MultiheadAttention(d_model, heads ,batch_first=True)
+      self.scale_summary = nn.MultiheadAttention(d_model, heads ,batch_first=True)
+
+      self.fim_l = FIML(d_model=fim_l_d_model,heads=4).to('cuda')
+      self.fim_l.load_state_dict((torch.load("model_fim_l.pth")))
+      self.fim_l = torch.compile(self.fim_l)
+
+      for param in self.fim_l._orig_mod.parameters():
+        param.requires_grad = False
+      
+      self.trunk_embed =  self.fim_l._orig_mod.embedding_t_trunk
+      self.trunk_net =  self.fim_l._orig_mod.trunk_mlp
+
+
+      self.extractor = nn.Sequential(nn.Linear(2*d_model, 4*d_model),nn.LeakyReLU(), 
+                                      nn.LayerNorm(4*d_model),
+                                      nn.Linear(4*d_model,2* d_model),nn.LeakyReLU(),
+                                      nn.Linear(2*d_model, d_model),)
+                                     
+                                        
+                                     
+      self.final_proj = self.fim_l._orig_mod.final_proj
+
+      self.scale_layer = nn.Sequential(nn.Linear(d_model , 4*d_model),nn.LeakyReLU(), 
+                                      nn.LayerNorm(4*d_model),
+                                      nn.Linear(4*d_model,4* d_model),nn.LeakyReLU(negative_slope=0.1),
+                                      nn.Linear(4*d_model, d_model),nn.LeakyReLU(negative_slope=0.1),
+                                      nn.Linear(d_model, 2))
+
+
+    def forward(self,y, t, t_sample, y_mask,stats):
         
-        return self.final_proj(combined).squeeze()
+      stats_emb = self.local_scale_emb(stats)
+  
+      local_emb = None
+      for i in range(0,5):
+        y_i,t_i,t_sample_i,y_mask_i = y[:,i],t[:,i],t_sample[:,i],y_mask[:,i]
+      
+        _,out = self.fim_l(y_i, t_i, t_sample_i, y_mask_i) # 
+       
+        local_emb = out if local_emb == None else torch.cat((out,local_emb),dim=1)
+
+      local_emb = torch.cat((local_emb,stats_emb),dim=-1)
+      h_5,local_emb = local_emb[:,-1],local_emb[:,:4]
+  
+      local_emb = self.extractor(local_emb)
+
+      with torch.no_grad():
+          h_5 = self.extractor(h_5)
+
+
+
+      scale_q = self.scale_q.unsqueeze(0).expand(y.shape[0],-1,-1)
+
+      scale_sum,_ = self.scale_summary(scale_q,stats_emb[:,:4],stats_emb[:,:4])
+     
+
+      megatron = self.transformer(local_emb)
+
+      learnable_q = self.learnable_q.unsqueeze(0).expand(y.shape[0],-1,-1)
+
+      u,_ = self.summary(learnable_q,megatron,megatron)
+
+      cosine_sim = nn.functional.cosine_similarity(u.squeeze(1),h_5,dim=-1)
+
+      last_window_t_embedd =self.trunk_embed( t_sample[:,-1].unsqueeze(-1))
+      last_window_t_out =self.trunk_net(last_window_t_embedd)
+
+      combined = torch.cat((u.expand(-1,last_window_t_out.shape[1],-1),last_window_t_out),dim=-1)
+
+      out = self.final_proj(combined)
+   
+      scaling = self.scale_layer(scale_sum.squeeze())
+      #print(scaling.shape,out.shape)
+      scaling_0 = scaling[:, 0].unsqueeze(1).unsqueeze(2)  
+      scaling_1 = scaling[:, 1].unsqueeze(1).unsqueeze(2)
+
+
+      return (out * scaling_0 + scaling_1).squeeze(),cosine_sim
+      

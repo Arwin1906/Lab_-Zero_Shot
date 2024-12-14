@@ -5,7 +5,7 @@ def save_data(*arrays, folder="saved_data",postfix="train"):
     os.makedirs(folder, exist_ok=True)  # Create the folder if it doesn't exist
     filenames = [
         "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
-        "branch_mask.npy", "test_truth.npy","stats.npy","samples.npy","samples_noisy.npy"
+        "branch_mask.npy", "test_truth.npy","stats.npy","norm_props.npy","samples.npy","samples_noisy.npy"
     ]
     for array, filename in zip(arrays, filenames):
         np.save(os.path.join(folder+"_"+postfix, filename), array)
@@ -14,7 +14,7 @@ def save_data(*arrays, folder="saved_data",postfix="train"):
 def load_data(folder="saved_data",postfix="train"):
     filenames = [
         "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
-        "branch_mask.npy", "test_truth.npy","stats.npy","samples.npy","samples_noisy.npy"
+        "branch_mask.npy", "test_truth.npy","stats.npy","norm_props.npy","samples.npy","samples_noisy.npy"
 
     ]
     arrays = [np.load(os.path.join(folder+"_"+postfix, filename), allow_pickle=True) for filename in filenames]
@@ -33,7 +33,7 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def prepare_data(num_functions,grid_size):
+def prepare_data(num_functions,grid_size,train=True):
     # Parameters
       # Total number of functions to generate
     batch_size = 1        # Batch size for processing
@@ -84,15 +84,11 @@ def prepare_data(num_functions,grid_size):
     def get_kernel(X,l,v,p):
         import random
         r = random.uniform(0, 1)
-        if r <0.2:
+        if r <=0.3:
             return periodic_kernel_matrix(X,l,v,p)
-        elif r >=.2 and r <.4:
-            return rbf_kernel_matrix(X,l,v)
-        elif r >=.4 and r <.6:
+        elif r > .3 and r <= .6:
             return locally_periodic_kernel_matrix(X,l,v,p)
-        elif r >=.6 and r <.8:
-            return linear_kernel_matrix(X,v)
-        elif r >=.8 and r <=1:
+        else:
             return linear_plus_periodic_kernel_matrix(X,v,l,v,p)
     
 
@@ -111,16 +107,20 @@ def prepare_data(num_functions,grid_size):
     branch_mask_collection = []
     test_truth_collection = []
     stats_collection = []
+    norm_props_collection = []
 
     samples_ = []
     samples_noisy_ = []
+
     i = 0
+    train_dist = [1.0,2.0,5.0]
+    test_dist = [1.5,3.0,7.0]
+    dist = train_dist if train else test_dist
+
     for j in tqdm(range(num_functions), desc=f"NUM {i+1}/{100000}", leave=False):
         try:
-            alpha, beta_param = np.random.choice([1.0,2.0,5.0], 1,replace=False)[0],np.random.choice([1.0,2.0,5.0], 1,replace=False)[0]
+            alpha, beta_param = np.random.choice(dist, 1,replace=False)[0],np.random.choice(dist, 1,replace=False)[0]
             i = j
-            if j % 1000 == 0:
-                print(j)
             l,p = beta_dist.rvs(alpha, beta_param),beta_dist.rvs(alpha, beta_param)
             K = get_kernel(X,l,variance,p)
 
@@ -137,7 +137,8 @@ def prepare_data(num_functions,grid_size):
             train_set_branch_t = np.zeros(shape=(5, grid_size//5))
             test_truth = np.zeros(shape=(5, grid_size//5))
 
-            stats = np.zeros(shape=(5, 8))
+            stats = np.zeros(shape=(5, 9))
+            norm_props = np.zeros(shape=(5, 4))
 
 
             branch_mask = np.zeros(shape=(5, grid_size//5))
@@ -158,39 +159,35 @@ def prepare_data(num_functions,grid_size):
                 y_truth = samples[i]
                 t_truth =X.reshape(5,grid_size//5)[i]
                 t_observed = X.reshape(5,grid_size//5)[i][indices]
+           
                 
-               # y_min_truth,y_max_truth = (np.min(y_truth),np.max(y_truth))
-               # y_min_noise,y_max_noise = (np.min(y_observed),np.max(y_observed))
-                y_mean_truth,y_std_truth = (np.mean(y_truth),np.std(y_truth))     
-                y_mean_noise,y_std_noise = (np.mean(y_observed),np.std(y_observed))
-
-         #       y_range,y_f,y_l,y_d =  (y_max_noise - y_min_noise,y_observed[0], y_observed[-1],y_observed[-1] - y_observed[0])
-         
-              
-                t_min,t_max,t_range,t_f,t_l,t_d = (np.min(t_observed),np.max(t_observed),
-                                                np.max(t_observed) - np.min(t_observed),
-                                                t_observed[0],t_observed[-1],
-                                                t_observed[-1] - t_observed[0])  
-                
+                y_min_truth,y_max_truth = (np.min(y_truth),np.max(y_truth))
+                y_min_noise,y_max_noise = (np.min(y_observed),np.max(y_observed))
+            #    y_mean_truth,y_std_truth = (np.mean(y_truth),np.std(y_truth))     
+             #   y_mean_noise,y_std_noise = (np.mean(y_observed),np.std(y_observed))
+        
              
-                #norm
-         #       print(y_observed - y_truth[indices])
-                y_observed = (y_observed - y_mean_noise)/y_std_noise#(y_max_noise-y_min_noise)
-                y_truth =  (y_truth - y_mean_noise)/y_std_noise#(y_max_truth-y_min_truth)
-                t_observed = (t_observed - t_min)/(t_max-t_min)
-                t_truth = (t_truth - t_min)/(t_max-t_min)
-                
-             #   print(y_min_truth,y_min_noise)
-              #  print(y_max_truth,y_max_noise)
-            #    print(y_observed - y_truth[indices])
-        #       raise Exception()
 
-                train_set_branch_y[i] = np.append(y_observed,np.zeros(grid_size//5 - len(indices)))         
-                train_set_branch_t[i] = np.append(t_observed,np.zeros(grid_size//5 - len(indices)))
+                y_observed_norm = (y_observed - y_min_noise)/(y_max_noise-y_min_noise)
+                y_truth =  (y_truth - y_min_truth)/(y_max_truth-y_min_truth)
+                t_observed_norm = (t_observed - np.min(t_observed))/(np.max(t_observed) - np.min(t_observed))
+                t_truth = (t_truth - np.min(t_truth))/(np.max(t_truth)-np.min(t_truth))
+                
+
+                train_set_branch_y[i] = np.append(y_observed_norm,np.zeros(grid_size//5 - len(indices)))         
+                train_set_branch_t[i] = np.append(t_observed_norm,np.zeros(grid_size//5 - len(indices)))
                 train_set_trunk_t[i] = t_truth
                 branch_mask[i]  = np.append(np.ones(len(indices)), np.zeros(grid_size//5 - len(indices)))
                 test_truth[i] = y_truth
-                stats[i] =np.array([y_mean_noise,y_std_noise,t_min,t_max,t_range,t_f,t_l,t_d]) #np.array([y_min_noise,y_max_noise,y_range,y_f,y_l,y_d,t_min,t_max,t_range,t_f,t_l,t_d])
+                stats[i] =np.array([y_min_noise,y_max_noise,
+                                    y_max_noise - y_min_noise,
+                                    y_observed[0],y_observed[-1],
+                                    y_observed[-1] - y_observed[0],
+                                    t_observed[0],t_observed[-1],
+                                    t_observed[-1] - t_observed[0]])
+                norm_props[i] = np.array([y_min_noise,y_max_noise,np.min(t_observed),np.max(t_observed)])
+           
+                                     #np.array([y_min_noise,y_max_noise,y_range,y_f,y_l,y_d,t_min,t_max,t_range,t_f,t_l,t_d])
             #    raise Exception()
             train_set_branch_y_collection.append(train_set_branch_y)
             train_set_branch_t_collection.append(train_set_branch_t)
@@ -198,21 +195,26 @@ def prepare_data(num_functions,grid_size):
             branch_mask_collection.append(branch_mask)
             test_truth_collection.append(test_truth)
             stats_collection.append(stats)
+            norm_props_collection.append(norm_props)
+
+            
             samples_.append(samples)
             samples_noisy_.append(samples_noisy)
             
         except :
 
             continue
-    train_set_branch_y_collection = (np.asarray(train_set_branch_y_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    train_set_branch_t_collection = (np.asarray(train_set_branch_t_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    train_set_trunk_collection = (np.asarray(train_set_trunk_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    branch_mask_collection = (np.asarray(branch_mask_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    test_truth_collection = (np.asarray(test_truth_collection, dtype=np.float32)).reshape(num_functions*5,-1)
-    stats_collection = (np.asarray(stats_collection, dtype=np.float32)).reshape(num_functions*5,-1)
+    train_set_branch_y_collection = (np.asarray(train_set_branch_y_collection, dtype=np.float32)).reshape(-1,grid_size//5)
+    train_set_branch_t_collection = (np.asarray(train_set_branch_t_collection, dtype=np.float32)).reshape(-1,grid_size//5)
+    train_set_trunk_collection = (np.asarray(train_set_trunk_collection, dtype=np.float32)).reshape(-1,grid_size//5)
+    branch_mask_collection = (np.asarray(branch_mask_collection, dtype=np.float32)).reshape(-1,grid_size//5)
+    test_truth_collection = (np.asarray(test_truth_collection, dtype=np.float32).reshape(-1,grid_size//5))
+    stats_collection = (np.asarray(stats_collection, dtype=np.float32)).reshape(-1,9)
+    norm_props_collection = (np.asarray(norm_props_collection, dtype=np.float32)).reshape(-1,4)
 
-    samples_ = (np.asarray(samples_, dtype=np.float32)).reshape(num_functions*5,-1)
-    samples_noisy_ = (np.asarray(samples_noisy_, dtype=np.float32)).reshape(num_functions*5,-1)
+
+    samples_ = (np.asarray(samples_, dtype=np.float32)).reshape(-1,grid_size//5)
+    samples_noisy_ = (np.asarray(samples_noisy_, dtype=np.float32)).reshape(-1,grid_size//5)
 
 
     return (train_set_branch_y_collection,
@@ -221,6 +223,7 @@ def prepare_data(num_functions,grid_size):
             branch_mask_collection,
             test_truth_collection,
             stats_collection,
+            norm_props_collection,
             samples_,samples_noisy_)
 
 
@@ -230,4 +233,4 @@ def prepare_data(num_functions,grid_size):
 grid_size = 640
 num_f = 100000
 data = prepare_data(num_f,grid_size)
-save_data(*data,postfix="train")
+save_data(*data,postfix="train_minmax_big")

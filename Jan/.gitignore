@@ -2,5 +2,9 @@ saved_data/
 model.pth
 arwin.pth
 __pycache__/
+saved_data/
 saved_data_train/
 saved_data_test/
+saved_data_train_minmax/
+saved_data_train_minmax_big/
+*.pth
