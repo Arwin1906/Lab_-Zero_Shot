@@ -16,7 +16,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def load_data(folder="saved_data",postfix="train"):
     filenames = [
         "train_set_branch_y.npy", "train_set_branch_t.npy", "train_set_trunk.npy",
-        "branch_mask.npy", "test_truth.npy","stats.npy","samples.npy","samples_noisy.npy"
+        "branch_mask.npy", "test_truth.npy","stats.npy","norm_props.npy","samples.npy","samples_noisy.npy"
 
     ]
     arrays = [np.load(os.path.join(folder+"_"+postfix, filename), allow_pickle=True) for filename in filenames]
@@ -49,7 +49,7 @@ class InverseSquareRootLR(torch.optim.lr_scheduler._LRScheduler):
     
 
 (train_set_branch_y, train_set_branch_t, train_set_trunk_t,
- branch_mask, test_truth,stats,samples,samples_noisy) = load_data(postfix="train_minmax_big")
+ branch_mask, test_truth,stats,norm_props,samples,samples_noisy) = load_data(postfix="train_minmax_t1")
 print(train_set_branch_y.shape)
 dataset = TimeSeriesDataset(
     train_set_branch_y,
@@ -58,13 +58,14 @@ dataset = TimeSeriesDataset(
     branch_mask,
     test_truth,
     stats,
+    norm_props,
     samples
 )
-epochs = 15
+epochs = 20
 # Initialize the DataLoader
 dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 model = FIML(d_model=256,heads=4)
-#model.load_state_dict((torch.load("model_fim_l.pth")))
+#model.load_state_dict((torch.load("model_fim_l_2.pth")))
 
 model = torch.compile(model)
 
@@ -107,6 +108,6 @@ for epoch in range(epochs):
     #break
     
 
-torch.save(model._orig_mod.state_dict(), 'model_fim_l.pth')
+    torch.save(model._orig_mod.state_dict(), 'model_fim_l.pth')
 
         

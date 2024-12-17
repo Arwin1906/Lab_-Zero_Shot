@@ -51,22 +51,22 @@ class InverseSquareRootLR(torch.optim.lr_scheduler._LRScheduler):
 
 (train_set_branch_y, train_set_branch_t, train_set_trunk_t,
  branch_mask, test_truth,stats,norm_param,samples,samples_noisy) =  load_data(postfix="train_minmax_big")
-n = 100000
+n = 20000
 dataset = TimeSeriesDataset(
-    train_set_branch_y.reshape(-1,5,grid_size//5)[:n],
-    train_set_branch_t.reshape(-1,5,grid_size//5)[:n],
-    train_set_trunk_t.reshape(-1,5,grid_size//5)[:n],
-    branch_mask.reshape(-1,5,grid_size//5)[:n],
-    test_truth.reshape(-1,5,grid_size//5)[:n],
-    stats.reshape(-1,5,9)[:n],
-    norm_param.reshape(-1,5,4)[:n],
-    samples.reshape(-1,5,grid_size//5)[:n],
+    train_set_branch_y.reshape(-1,5,grid_size//5),
+    train_set_branch_t.reshape(-1,5,grid_size//5),
+    train_set_trunk_t.reshape(-1,5,grid_size//5),
+    branch_mask.reshape(-1,5,grid_size//5),
+    test_truth.reshape(-1,5,grid_size//5),
+    stats.reshape(-1,5,9),
+    norm_param.reshape(-1,5,4),
+    samples.reshape(-1,5,grid_size//5),
 )
-epochs = 35
+epochs = 25
 # Initialize the DataLoader
 dataloader = DataLoader(dataset, batch_size=256, shuffle=True)
-model = MegaTron(d_model=256,heads=8)
-model.load_state_dict((torch.load("model_megatron_2.pth")))
+model = MegaTron(d_model=256,heads=4)
+model.load_state_dict((torch.load("model_megatron.pth")))
 
 model = torch.compile(model)
 
@@ -82,7 +82,7 @@ lr_scheduler = InverseSquareRootLR(optim,warmup_steps=0,init_lr=1e-4,min_lr=1e-4
 scaler = torch.GradScaler()
 
 loss = 0
-alpha = 0.35
+alpha = 0.1
 for epoch in range(epochs):
     losses = []
     for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}, lr: {lr_scheduler.get_lr()[0]}", leave=False):
@@ -96,8 +96,8 @@ for epoch in range(epochs):
 
         out,cosine_sim = model(train_set_branch_y,train_set_branch_t,train_set_trunk_t,branch_mask,stats)
 
-    #    print(cosine_sim)
-        loss = ((out-samples[:,-1])**   2).mean() #+ alpha*(torch.abs(cosine_sim - 1)).mean() #mse
+       
+        loss = ((out-samples[:,-1])**2).mean() + alpha*(torch.abs(cosine_sim - 1)).mean() #mse
         if torch.isnan(loss).any():
             raise Exception("NaN loss")
         loss.backward()
@@ -113,7 +113,7 @@ for epoch in range(epochs):
         
     
 
-    torch.save(model._orig_mod.state_dict(), 'model_megatron_2.pth')
+    torch.save(model._orig_mod.state_dict(), 'model_megatron.pth')
     
     print(f"Epoch {epoch+1}/{epochs}, Loss: {np.mean(np.array(losses))}")
 

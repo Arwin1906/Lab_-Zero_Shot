@@ -7,5 +7,6 @@ saved_data_train/
 saved_data_test/
 saved_data_train_minmax/
 saved_data_train_minmax_big/
+saved_data_*/
 *.pth
 nohup.out

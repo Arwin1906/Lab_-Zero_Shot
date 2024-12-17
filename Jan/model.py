@@ -82,12 +82,9 @@ class MegaTron(nn.Module):
       self.transformer = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=heads, batch_first=True), num_layers=8, enable_nested_tensor=False)
       
       self.learnable_q = nn.Parameter(torch.empty(1,d_model))
-      self.scale_q = nn.Parameter(torch.empty(1,d_model))
       nn.init.xavier_uniform_(self.learnable_q)
-      nn.init.xavier_uniform_(self.scale_q)
 
       self.summary = nn.MultiheadAttention(d_model, heads ,batch_first=True)
-      self.scale_summary = nn.MultiheadAttention(d_model, heads ,batch_first=True)
 
       self.fim_l = FIML(d_model=fim_l_d_model,heads=4).to('cuda')
       self.fim_l.load_state_dict((torch.load("model_fim_l.pth")))
@@ -109,47 +106,55 @@ class MegaTron(nn.Module):
                                      
       self.final_proj = self.fim_l._orig_mod.final_proj
 
-      self.scale_layer = nn.Sequential(nn.Linear(d_model , 4*d_model),nn.LeakyReLU(), 
+      self.sim_layer = nn.Sequential(nn.Linear(d_model , 4*d_model),nn.LeakyReLU(), 
                                       nn.LayerNorm(4*d_model),
                                       nn.Linear(4*d_model,4* d_model),nn.LeakyReLU(negative_slope=0.1),
                                       nn.Linear(4*d_model, d_model),nn.LeakyReLU(negative_slope=0.1),
-                                      nn.Linear(d_model, 2))
+                                      nn.Linear(d_model,d_model))
+
+    @torch.no_grad()
+    def getLastWindow(self,y, t, t_sample, y_mask,stats):
+      stats_emb = self.local_scale_emb(stats).unsqueeze(1)
+  
+      
+      _,out = self.fim_l(y, t, t_sample, y_mask) # 
+      h_5 = torch.cat((out,stats_emb),dim=-1)
+
+      return self.extractor(h_5)
 
 
+       
     def forward(self,y, t, t_sample, y_mask,stats):
-        
+
+    #  h_5 = self.getLastWindow(y[:,4], t[:,4], t_sample[:,4], y_mask[:,4],stats[:,4])
+
+      y, t, t_sample, y_mask,stats = y[:,:4], t[:,:4], t_sample[:,:5], y_mask[:,:4],stats[:,:4]
+
       stats_emb = self.local_scale_emb(stats)
   
       local_emb = None
-      for i in range(0,5):
+      for i in range(0,4):
         y_i,t_i,t_sample_i,y_mask_i = y[:,i],t[:,i],t_sample[:,i],y_mask[:,i]
       
         _,out = self.fim_l(y_i, t_i, t_sample_i, y_mask_i) # 
-       
-        local_emb = out if local_emb == None else torch.cat((out,local_emb),dim=1)
+        local_emb = out if local_emb == None else torch.cat((local_emb,out),dim=1)
 
-      local_emb = torch.cat((local_emb,stats_emb),dim=-1)
-      h_5,local_emb = local_emb[:,-1],local_emb[:,:4]
-  
-      local_emb = self.extractor(local_emb)
-
-      with torch.no_grad():
-          h_5 = self.extractor(h_5)
+      local_concat_emb = torch.cat((local_emb,stats_emb),dim=-1)
+      local_concat_emb = self.extractor(local_concat_emb)
 
 
 
-      scale_q = self.scale_q.unsqueeze(0).expand(y.shape[0],-1,-1)
-
-      scale_sum,_ = self.scale_summary(scale_q,stats_emb[:,:4],stats_emb[:,:4])
      
 
-      megatron = self.transformer(local_emb)
+      megatron = self.transformer(local_concat_emb)
 
       learnable_q = self.learnable_q.unsqueeze(0).expand(y.shape[0],-1,-1)
 
       u,_ = self.summary(learnable_q,megatron,megatron)
 
-      cosine_sim = nn.functional.cosine_similarity(u.squeeze(1),h_5,dim=-1)
+     # u = self.sim_layer(u)
+
+      cosine_sim =1# nn.functional.cosine_similarity(u.squeeze(1),h_5,dim=-1)
 
       last_window_t_embedd =self.trunk_embed( t_sample[:,-1].unsqueeze(-1))
       last_window_t_out =self.trunk_net(last_window_t_embedd)
@@ -157,12 +162,7 @@ class MegaTron(nn.Module):
       combined = torch.cat((u.expand(-1,last_window_t_out.shape[1],-1),last_window_t_out),dim=-1)
 
       out = self.final_proj(combined)
-   
-      scaling = self.scale_layer(scale_sum.squeeze())
-      #print(scaling.shape,out.shape)
-      scaling_0 = scaling[:, 0].unsqueeze(1).unsqueeze(2)  
-      scaling_1 = scaling[:, 1].unsqueeze(1).unsqueeze(2)
 
 
-      return (out * scaling_0 + scaling_1).squeeze(),cosine_sim
+      return (out).squeeze(),cosine_sim
       
